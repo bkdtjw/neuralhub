@@ -2,16 +2,22 @@
 
 Pure Python + asyncio. Depends on LLMAdapter (injected), not on httpx or FastAPI.
 """
+
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from backend.adapters.base import LLMAdapter
 from backend.common.feishu_card import (
     CardRegistry,
-    FeishuCardError,
     build_formatter_prompt,
+)
+from backend.common.feishu_card_formatter_support import (
+    build_fallback_variables,
+    build_retry_prompt,
+    clean_llm_json,
+    compact_preview,
+    parse_variables,
 )
 from backend.common.logging import get_logger
 from backend.common.types import LLMRequest, Message
@@ -49,17 +55,19 @@ class CardFormatter:
 
         existing = existing_variables or {}
         # Only ask LLM to extract variables not already provided
-        missing_vars = {
-            k: v for k, v in cfg.variables.items() if k not in existing
-        }
+        missing_vars = {k: v for k, v in cfg.variables.items() if k not in existing}
 
         # Nothing for LLM to extract — skip the call entirely
         if not missing_vars:
             return {}
 
         prompt = build_formatter_prompt(
-            scenario, agent_reply, tool_name, tool_arguments,
-            variables_to_extract=missing_vars, registry=reg,
+            scenario,
+            agent_reply,
+            tool_name,
+            tool_arguments,
+            variables_to_extract=missing_vars,
+            registry=reg,
         )
 
         try:
@@ -70,61 +78,65 @@ class CardFormatter:
                 max_tokens=2000,
             )
             response = await self._adapter.complete(request)
-            raw = _clean_llm_json(response.content)
+            variables = parse_variables(response.content)
+            return _fill_missing_variables(variables, missing_vars, agent_reply)
 
-            variables: dict[str, str] = json.loads(raw)
-
-            if not isinstance(variables, dict):
-                raise FeishuCardError(
-                    "CARD_FORMAT_TYPE_ERROR",
-                    f"LLM returned non-object JSON: {type(variables).__name__}",
+        except Exception as first_error:
+            raw = getattr(locals().get("response", None), "content", "")
+            logger.warning(
+                "feishu_card_format_retry",
+                scenario=scenario,
+                model=self._model,
+                error=str(first_error),
+                raw_preview=compact_preview(str(raw)),
+            )
+            try:
+                retry_prompt = build_retry_prompt(prompt, str(raw), str(first_error))
+                retry_request = LLMRequest(
+                    model=self._model,
+                    messages=[Message(role="user", content=retry_prompt)],
+                    temperature=0.0,
+                    max_tokens=2000,
                 )
-
-            return {k: str(v) for k, v in variables.items()}
-
-        except Exception:
-            logger.warning("feishu_card_format_fallback", scenario=scenario)
-            return _build_fallback(missing_vars, agent_reply)
+                retry_response = await self._adapter.complete(retry_request)
+                variables = parse_variables(retry_response.content)
+                return _fill_missing_variables(variables, missing_vars, agent_reply)
+            except Exception as retry_error:
+                retry_raw = getattr(locals().get("retry_response", None), "content", "")
+                logger.warning(
+                    "feishu_card_format_fallback",
+                    scenario=scenario,
+                    model=self._model,
+                    first_error=str(first_error),
+                    retry_error=str(retry_error),
+                    raw_preview=compact_preview(str(retry_raw)),
+                )
+                return _build_fallback(missing_vars, agent_reply)
 
 
 def _clean_llm_json(raw: str) -> str:
     """Strip markdown fences and noise from LLM JSON output."""
-    raw = raw.strip()
-
-    # Remove markdown code block wrapping: ```json ... ``` or ``` ... ```
-    if raw.startswith("```"):
-        # Drop first line (```json or ```)
-        first_newline = raw.find("\n")
-        raw = raw[first_newline + 1:] if first_newline != -1 else ""
-        # Drop trailing ```
-        if "```" in raw:
-            raw = raw.rsplit("```", 1)[0]
-        raw = raw.strip()
-
-    # LLM may prepend explanatory text before the JSON object
-    if raw and not raw.startswith("{"):
-        idx = raw.find("{")
-        if idx != -1:
-            raw = raw[idx:]
-
-    if not raw:
-        raise FeishuCardError("CARD_FORMAT_JSON_ERROR", "LLM returned empty response")
-
-    return raw
+    return clean_llm_json(raw)
 
 
 def _build_fallback(
-    missing_vars: dict[str, Any], agent_reply: str,
+    missing_vars: dict[str, Any],
+    agent_reply: str,
 ) -> dict[str, str]:
     """Generate fallback values when LLM formatting fails."""
-    fallback: dict[str, str] = {}
-    text = agent_reply or "(无输出)"
+    return build_fallback_variables(missing_vars, agent_reply)
+
+
+def _fill_missing_variables(
+    variables: dict[str, str],
+    missing_vars: dict[str, Any],
+    agent_reply: str,
+) -> dict[str, str]:
+    fallback = _build_fallback(missing_vars, agent_reply)
     for key in missing_vars:
-        if "summary" in key.lower():
-            fallback[key] = text[:300] + ("..." if len(text) > 300 else "")
-        else:
-            fallback[key] = ""
-    return fallback
+        if not variables.get(key):
+            variables[key] = fallback.get(key, "")
+    return variables
 
 
 __all__ = ["CardFormatter"]

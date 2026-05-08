@@ -14,6 +14,9 @@ HELP_TEXT = """可用命令:
   /tools                显示当前工具列表
   /tasks                显示定时任务列表
   /tasks run <id>       立即执行指定任务
+  /plan <message>       Plan & Execute 模式执行任务
+  /plan show <name>     查看某个计划详情
+  /plans                列出历史计划
   /exit                 退出"""
 
 
@@ -51,9 +54,9 @@ def _format_provider_lines(providers: list[ProviderConfig], current_id: str) -> 
     lines = ["[info] 当前 provider 列表:"]
     for provider in providers:
         lines.append(
-            f'{"*" if provider.id == current_id else "-"} '
+            f"{'*' if provider.id == current_id else '-'} "
             f"{provider.name} [{provider.id}] -> {provider.default_model}"
-            f'{" (default)" if provider.is_default else ""}'
+            f"{' (default)' if provider.is_default else ''}"
         )
     return "\n".join(lines)
 

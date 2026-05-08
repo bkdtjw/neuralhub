@@ -9,6 +9,7 @@ from .models import (
     CliState,
     SessionUpdate,
 )
+from .plan_display import CliPlanRenderer
 from .session import create_session, rebuild_session, run_request
 from .spinner import SpinnerRenderer
 
@@ -18,6 +19,7 @@ __all__ = [
     "CliCommandResult",
     "CliError",
     "CliPrinter",
+    "CliPlanRenderer",
     "CliSession",
     "CliState",
     "SpinnerRenderer",

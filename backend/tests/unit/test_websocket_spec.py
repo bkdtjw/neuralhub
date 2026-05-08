@@ -27,6 +27,18 @@ def test_parse_loop_settings_allows_spec_id_without_model() -> None:
     assert settings.model == ""
 
 
+def test_parse_loop_settings_with_mode() -> None:
+    settings = parse_loop_settings({"model": "test", "mode": "plan_execute"})
+
+    assert settings.mode == "plan_execute"
+
+
+def test_parse_loop_settings_default_mode() -> None:
+    settings = parse_loop_settings({"model": "test"})
+
+    assert settings.mode == "direct"
+
+
 @pytest.mark.asyncio
 async def test_resolve_loop_settings_skips_provider_lookup_for_spec_id() -> None:
     provider_manager = AsyncMock()
@@ -85,3 +97,24 @@ def test_event_to_ws_message_supports_sub_agent_events() -> None:
     assert payload["type"] == "sub_agent_completed"
     assert payload["completed"] == 1
     assert payload["total"] == 3
+
+
+def test_event_to_ws_message_plan_created() -> None:
+    payload = event_to_ws_message(
+        AgentEvent(type="plan_created", data={"plan_name": "x", "goal": "g", "steps": []})
+    )
+
+    assert payload["type"] == "plan_created"
+    assert payload["plan_name"] == "x"
+
+
+def test_event_to_ws_message_plan_step_update() -> None:
+    payload = event_to_ws_message(
+        AgentEvent(
+            type="plan_step_done",
+            data={"step_id": 1, "title": "s", "duration_s": 2.0, "output_summary": "ok"},
+        )
+    )
+
+    assert payload["type"] == "plan_step_update"
+    assert payload["status"] == "done"

@@ -13,16 +13,30 @@ from backend.api.routes.feishu_handler_support import (
     resolve_reply_text,
     resolve_session_model,
 )
-from backend.api.routes.feishu_runtime import FeishuEventDeduplicator, build_agent_loop, collect_tool_calls
+from backend.api.routes.feishu_runtime import (
+    FeishuEventDeduplicator,
+    build_agent_loop,
+    collect_tool_calls,
+)
 from backend.api.routes.websocket_support import restore_messages
 from backend.common.feishu_card import CardRegistry, FeishuCardError, build_card_content
 from backend.common.feishu_card_formatter import CardFormatter
 from backend.common.logging import get_logger
 from backend.common.metrics import incr
 from backend.common.types import Session
-from backend.core.s01_agent_loop import AgentLoop
+from backend.core.s01_agent_loop import AgentLoop, PlanExecuteRunner
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
 from backend.storage.session_store import SessionStore
+
+from .feishu_menu_state import FeishuMenuState
+from .feishu_plan_control import (
+    RUNNING_REPLY,
+    handle_plan_control_message,
+    has_active_plan,
+    pause_plan_from_menu,
+    stop_plan_from_menu,
+)
+from .feishu_plan_support import handle_plan_message, parse_plan_request, run_plan, send_chat_text
 
 if TYPE_CHECKING:
     from backend.core.s05_skills import AgentRuntime, SpecRegistry
@@ -47,6 +61,11 @@ class FeishuMessageHandler:
         self._agent_runtime: AgentRuntime | None = None
         self._spec_registry: SpecRegistry | None = None
         self._task_queue: TaskQueue | None = None
+        self._plan_runners: dict[str, PlanExecuteRunner] = {}
+        self._plan_summaries: dict[str, str] = {}
+        self._menu_state = FeishuMenuState()
+        self._user_modes = self._menu_state._user_modes  # noqa: SLF001
+        self._user_chats = self._menu_state._user_chats  # noqa: SLF001
 
     def configure_runtime(
         self,
@@ -58,13 +77,81 @@ class FeishuMessageHandler:
         self._spec_registry = spec_registry
         self._task_queue = task_queue
 
+    async def _handle_plan_message(
+        self, chat_id: str, message_text: str, spec_id: str = ""
+    ) -> None:
+        await handle_plan_message(self, chat_id, message_text, spec_id)
+
+    async def _run_plan(self, chat_id: str, runner: PlanExecuteRunner, message: str) -> None:
+        await run_plan(self, chat_id, runner, message)
+
+    async def handle_menu_event(self, event_key: str, open_id: str) -> None:
+        try:
+            event_key = event_key.strip().lstrip("=")
+            logger.info("feishu_menu_event", event_key=event_key, open_id=open_id)
+            if event_key == "plan_mode":
+                await self._menu_state.set_mode(open_id, "plan_execute")
+                await self._send_to_user(
+                    open_id,
+                    "已切换到 Plan 模式 ✅\n\n"
+                    "请直接发送任务描述，我会先制定计划再逐步执行。\n\n"
+                    "如需切回普通模式，点击菜单「普通对话」。",
+                )
+                return
+            if event_key == "direct_mode":
+                await self._menu_state.clear_mode(open_id)
+                await self._send_to_user(open_id, "已切换回普通模式 ✅")
+                return
+            if event_key == "plan_pause":
+                await pause_plan_from_menu(self, open_id)
+                return
+            if event_key in {"plan_stop", "plan_cancel"}:
+                await stop_plan_from_menu(self, open_id)
+                return
+            logger.warning("feishu_unknown_menu_event", event_key=event_key, open_id=open_id)
+        except Exception:
+            logger.exception("feishu_menu_event_failed", event_key=event_key, open_id=open_id)
+
+    async def _send_to_user(self, open_id: str, text: str) -> None:
+        try:
+            chat_id = await self._menu_state.get_chat(open_id)
+            receive_id = chat_id or open_id
+            receive_id_type = "chat_id" if chat_id else "open_id"
+            logger.info(
+                "feishu_send_to_user",
+                open_id=open_id,
+                receive_id=receive_id,
+                receive_id_type=receive_id_type,
+            )
+            await self._client.send_message(
+                receive_id,
+                json.dumps({"text": text}, ensure_ascii=False),
+                receive_id_type=receive_id_type,
+            )
+        except Exception as exc:
+            logger.warning("feishu_send_to_user_failed", open_id=open_id, error=str(exc))
+
+    def cancel_plan(self, chat_id: str, plan_name: str) -> bool:
+        runner = self._plan_runners.get(chat_id)
+        if runner is None and plan_name:
+            runner = next(
+                (item for item in self._plan_runners.values() if item.plan_name == plan_name), None
+            )
+        if runner is None:
+            return False
+        runner.cancel()
+        return True
+
     async def handle_message(self, event: dict[str, Any]) -> None:
         event_id = event.get("header", {}).get("event_id", "")
         msg = event.get("event", {}).get("message", {})
         sender = event.get("event", {}).get("sender", {})
+        open_id = sender.get("sender_id", {}).get("open_id", "")
         msg_type = msg.get("message_type", "")
         chat_id = msg.get("chat_id", "")
         message_id = msg.get("message_id", "")
+        if open_id and chat_id:
+            await self._menu_state.set_chat(open_id, chat_id)
         started_at = monotonic()
         with build_feishu_log_context(chat_id):
             if await self._seen(event_id):
@@ -73,7 +160,9 @@ class FeishuMessageHandler:
             if sender.get("sender_type") == "bot":
                 logger.debug("feishu_message_skipped", chat_id=chat_id, reason="bot_sender")
                 return
-            logger.info("feishu_message_start", event_id=event_id, chat_id=chat_id, message_type=msg_type)
+            logger.info(
+                "feishu_message_start", event_id=event_id, chat_id=chat_id, message_type=msg_type
+            )
             await incr("feishu_messages")
             text = extract_text(msg, msg_type)
             if text is None:
@@ -81,16 +170,46 @@ class FeishuMessageHandler:
                     await self._reply(message_id, json.dumps({"text": "暂不支持该消息类型"}))
                 except Exception:
                     pass
-                logger.info("feishu_message_end", chat_id=chat_id, duration_ms=int((monotonic() - started_at) * 1000))
+                logger.info(
+                    "feishu_message_end",
+                    chat_id=chat_id,
+                    duration_ms=int((monotonic() - started_at) * 1000),
+                )
                 return
 
             async with self._chat_lock(chat_id):
                 loop: AgentLoop | None = None
                 should_persist = False
                 try:
+                    if has_active_plan(self, chat_id):
+                        if await handle_plan_control_message(self, chat_id, text):
+                            return
+                        await self._send_chat_text(chat_id, RUNNING_REPLY)
+                        return
+                    plan_request = self._parse_plan_request(text)
+                    if plan_request is not None:
+                        await self._handle_plan_message(chat_id, plan_request[0], plan_request[1])
+                        logger.info(
+                            "feishu_message_end",
+                            chat_id=chat_id,
+                            duration_ms=int((monotonic() - started_at) * 1000),
+                        )
+                        return
                     if text.startswith("/"):
                         await self._handle_slash_command(chat_id, message_id, text)
-                        logger.info("feishu_message_end", chat_id=chat_id, duration_ms=int((monotonic() - started_at) * 1000))
+                        logger.info(
+                            "feishu_message_end",
+                            chat_id=chat_id,
+                            duration_ms=int((monotonic() - started_at) * 1000),
+                        )
+                        return
+                    if await self._menu_state.get_mode(open_id) == "plan_execute":
+                        await self._handle_plan_message(chat_id, text)
+                        logger.info(
+                            "feishu_message_end",
+                            chat_id=chat_id,
+                            duration_ms=int((monotonic() - started_at) * 1000),
+                        )
                         return
                     loop = await self._get_or_create_loop(chat_id)
                     should_persist = True
@@ -98,16 +217,32 @@ class FeishuMessageHandler:
                     content = resolve_reply_text(result)
                     await self._persist_turn(chat_id, loop)
                     await self._reply_loop_result(loop, message_id, content)
-                    logger.info("feishu_message_end", chat_id=chat_id, duration_ms=int((monotonic() - started_at) * 1000))
+                    logger.info(
+                        "feishu_message_end",
+                        chat_id=chat_id,
+                        duration_ms=int((monotonic() - started_at) * 1000),
+                    )
                 except Exception:
                     if should_persist and loop is not None:
                         try:
                             await self._persist_turn(chat_id, loop)
                         except Exception:
-                            logger.warning("feishu_message_persist_after_error_failed", chat_id=chat_id)
-                    logger.exception("feishu_message_error", event_id=event_id, chat_id=chat_id, message_id=message_id)
+                            logger.warning(
+                                "feishu_message_persist_after_error_failed", chat_id=chat_id
+                            )
+                    logger.exception(
+                        "feishu_message_error",
+                        event_id=event_id,
+                        chat_id=chat_id,
+                        message_id=message_id,
+                    )
                     try:
-                        await self._reply(message_id, json.dumps({"text": "处理消息时出错，请稍后重试。详情请查看服务端日志。"}))
+                        await self._reply(
+                            message_id,
+                            json.dumps(
+                                {"text": "处理消息时出错，请稍后重试。详情请查看服务端日志。"}
+                            ),
+                        )
                     except Exception:
                         pass
 
@@ -156,7 +291,9 @@ class FeishuMessageHandler:
 
     async def _get_or_create_loop(self, chat_id: str) -> AgentLoop:
         session = await self._store.get(chat_id)
-        provider = await self._resolve_provider(session.config.provider if session is not None else None)
+        provider = await self._resolve_provider(
+            session.config.provider if session is not None else None
+        )
         resolved_model = resolve_session_model(session, provider)
         loop = self._sessions.get(chat_id)
         if loop is None or loop._config.provider != provider.id:
@@ -184,10 +321,11 @@ class FeishuMessageHandler:
             return
         spec = self._spec_registry.get(spec_id)
         if not spec_id or spec is None or not spec.enabled:
+            available_specs = self._available_specs_text()
             await self._reply(
                 message_id,
                 json.dumps(
-                    {"text": f"未找到场景：{spec_id or '/'}，可用场景：{self._available_specs_text()}"},
+                    {"text": f"未找到场景：{spec_id or '/'}，可用场景：{available_specs}"},
                     ensure_ascii=False,
                 ),
             )
@@ -233,12 +371,16 @@ class FeishuMessageHandler:
         return lock
 
     @staticmethod
-    def _restore_loop(loop: AgentLoop, session: Session, provider_id: str, resolved_model: str) -> None:
+    def _restore_loop(
+        loop: AgentLoop, session: Session, provider_id: str, resolved_model: str
+    ) -> None:
         system_prompt = session.config.system_prompt or loop._config.system_prompt
         loop._config.model = resolved_model or loop._config.model
         loop._config.provider = provider_id
         loop._config.system_prompt = system_prompt
-        loop._messages = restore_messages(session.messages, system_prompt) if session.messages else []  # noqa: SLF001
+        loop._messages = (
+            restore_messages(session.messages, system_prompt) if session.messages else []
+        )  # noqa: SLF001
 
     async def _seen(self, event_id: str) -> bool:
         return await self._deduplicator.seen(event_id)
@@ -249,8 +391,17 @@ class FeishuMessageHandler:
             logger.info("feishu_reply_sent", message_id=message_id, msg_type=msg_type)
             await incr("feishu_replies")
         except Exception as exc:
-            logger.exception("feishu_reply_error", message_id=message_id, msg_type=msg_type, error=str(exc))
+            logger.exception(
+                "feishu_reply_error", message_id=message_id, msg_type=msg_type, error=str(exc)
+            )
             raise
+
+    async def _send_chat_text(self, chat_id: str, text: str) -> None:
+        await send_chat_text(self, chat_id, text)
+
+    @staticmethod
+    def _parse_plan_request(text: str) -> tuple[str, str] | None:
+        return parse_plan_request(text)
 
     async def _resolve_provider(self, provider_key: str | None = None) -> Any:
         providers = await self._pm.list_all()

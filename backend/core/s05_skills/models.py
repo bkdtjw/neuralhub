@@ -4,7 +4,7 @@ import re
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _SPEC_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -45,6 +45,8 @@ class AgentSpec(BaseModel):
     provider: str = ""
     max_iterations: int = Field(default=20, ge=1)
     timeout_seconds: float = Field(default=300.0, ge=10.0)
+    default_mode: str = "direct"
+    allow_modes: list[str] = Field(default_factory=lambda: ["direct", "plan_execute"])
     enabled: bool = True
     tools: ToolConfig = Field(default_factory=ToolConfig)
     sub_agents: SubAgentPolicy = Field(default_factory=SubAgentPolicy)
@@ -56,6 +58,14 @@ class AgentSpec(BaseModel):
         if not _SPEC_ID_PATTERN.fullmatch(value):
             raise ValueError("id must match [A-Za-z0-9_-]{1,64}")
         return value
+
+    @model_validator(mode="after")
+    def validate_modes(self) -> AgentSpec:
+        if self.default_mode not in self.allow_modes:
+            raise ValueError(
+                f"default_mode {self.default_mode!r} must be in allow_modes {self.allow_modes}"
+            )
+        return self
 
 
 __all__ = [

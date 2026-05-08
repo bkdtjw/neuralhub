@@ -15,6 +15,7 @@ from .console_helpers import (
 )
 from .display import CliPrinter
 from .models import CliArgs, CliCommand, CliCommandResult, CliError, CliSession, SessionUpdate
+from .plan_commands import handle_plan_run, handle_plan_show, handle_plans_list
 from .session import rebuild_session, run_request
 
 
@@ -75,6 +76,15 @@ async def handle_command(
         if command.name == "/tools":
             printer.print_tools(session)
             return CliCommandResult(session=session)
+        if command.name == "/plan":
+            if command.argument.startswith("show "):
+                return await handle_plan_show(session, command.argument[5:].strip(), printer)
+            if not command.argument.strip():
+                printer.print_info("[error] 用法: /plan <任务描述>  或  /plan show <name>")
+                return CliCommandResult(session=session)
+            return await handle_plan_run(session, command.argument, printer)
+        if command.name == "/plans":
+            return await handle_plans_list(session, printer)
         if command.name == "/clear":
             session.loop.reset()
             printer.print_info("[info] 对话历史已清空。")
@@ -191,7 +201,9 @@ async def handle_command(
                         await task_store.update_run_status(task.id, "success", result[:500])
                         printer.print_info(f"[info] 任务执行完成：\n{result[:2000]}")
                     except TaskExecutionError as exc:
-                        await task_store.update_run_status(task.id, "error", (exc.output or exc.message)[:500])
+                        await task_store.update_run_status(
+                            task.id, "error", (exc.output or exc.message)[:500]
+                        )
                         printer.print_info(f"[error] 执行失败：{exc.message}")
                     except Exception as exc:
                         printer.print_info(f"[error] 执行失败：{exc}")

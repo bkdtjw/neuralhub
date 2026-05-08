@@ -1,9 +1,9 @@
 """Tests for CardFormatter with mock LLM adapter."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -62,7 +62,11 @@ class TestCardFormatter:
         formatter = CardFormatter(adapter, "test-model")
 
         result = await formatter.format(
-            "search_result", "Agent reply", "x_search", {"query": "test"}, registry,
+            "search_result",
+            "Agent reply",
+            "x_search",
+            {"query": "test"},
+            registry,
         )
         assert result == {"title": "Hello", "summary": "World"}
 
@@ -72,7 +76,11 @@ class TestCardFormatter:
         formatter = CardFormatter(adapter, "test-model")
 
         result = await formatter.format(
-            "search_result", "Reply", "x_search", {}, registry,
+            "search_result",
+            "Reply",
+            "x_search",
+            {},
+            registry,
         )
         assert result["title"] == "Hi"
 
@@ -100,10 +108,46 @@ class TestCardFormatter:
         formatter = CardFormatter(adapter, "test-model")
 
         result = await formatter.format(
-            "search_result", "Reply", "x_search", {}, registry,
+            "search_result",
+            "Reply",
+            "x_search",
+            {},
+            registry,
         )
         assert result["title"] == "123"
-        assert result["summary"] == "True"
+        assert result["summary"] == "true"
+
+    @pytest.mark.asyncio
+    async def test_format_retries_dirty_json(self, registry: CardRegistry) -> None:
+        adapter = AsyncMock(spec=LLMAdapter)
+        adapter.complete = AsyncMock(
+            side_effect=[
+                LLMResponse(content="not json at all"),
+                LLMResponse(content='{"title": "Retried", "summary": "Clean"}'),
+            ],
+        )
+        formatter = CardFormatter(adapter, "test-model")
+
+        result = await formatter.format("search_result", "Reply", "x_search", {}, registry)
+
+        assert result == {"title": "Retried", "summary": "Clean"}
+        assert adapter.complete.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_format_fills_missing_variable(self, registry: CardRegistry) -> None:
+        adapter = _make_adapter('{"title": "Only title"}')
+        formatter = CardFormatter(adapter, "test-model")
+
+        result = await formatter.format(
+            "search_result",
+            "# Daily\n\n## 今日必看\n- Important item",
+            "x_search",
+            {},
+            registry,
+        )
+
+        assert result["title"] == "Only title"
+        assert "Important item" in result["summary"]
 
     @pytest.mark.asyncio
     async def test_existing_variables_skip_llm(self, registry: CardRegistry) -> None:
@@ -112,7 +156,11 @@ class TestCardFormatter:
 
         # Both variables already provided — LLM should NOT be called
         result = await formatter.format(
-            "search_result", "Reply", "x_search", {}, registry,
+            "search_result",
+            "Reply",
+            "x_search",
+            {},
+            registry,
             existing_variables={"title": "Existing", "summary": "Existing summary"},
         )
         assert result == {}
@@ -125,7 +173,11 @@ class TestCardFormatter:
 
         # title already provided, only summary needs LLM
         result = await formatter.format(
-            "search_result", "Reply", "x_search", {}, registry,
+            "search_result",
+            "Reply",
+            "x_search",
+            {},
+            registry,
             existing_variables={"title": "Existing Title"},
         )
         assert result == {"summary": "LLM generated"}
@@ -144,6 +196,10 @@ class TestCleanLlmJson:
         raw = 'Here is the JSON:\n{"a": 1}'
         assert json.loads(_clean_llm_json(raw)) == {"a": 1}
 
+    def test_trailing_noise(self) -> None:
+        raw = 'Here is the JSON:\n{"a": 1}\n说明文字'
+        assert json.loads(_clean_llm_json(raw)) == {"a": 1}
+
     def test_empty_raises(self) -> None:
         with pytest.raises(Exception, match="empty"):
             _clean_llm_json("")
@@ -152,13 +208,16 @@ class TestCleanLlmJson:
 class TestBuildFallback:
     def test_summary_fields_use_reply_text(self) -> None:
         from backend.schemas.feishu import FeishuCardVariableConfig
+
         missing = {"summary_md": FeishuCardVariableConfig(description="摘要")}
-        result = _build_fallback(missing, "A" * 500)
-        assert result["summary_md"].endswith("...")
-        assert len(result["summary_md"]) == 303  # 300 + "..."
+        reply = "# 科技圈 AI 早报\n\n## 今日必看\n| # | 要点 |\n|---|---|\n| 1 | Kimi 切换完成 |\n"
+        result = _build_fallback(missing, reply)
+        assert "科技圈 AI 早报" in result["summary_md"]
+        assert "Kimi 切换完成" in result["summary_md"]
 
     def test_non_summary_fields_empty(self) -> None:
         from backend.schemas.feishu import FeishuCardVariableConfig
+
         missing = {"title": FeishuCardVariableConfig(description="标题")}
         result = _build_fallback(missing, "Reply text")
         assert result["title"] == ""

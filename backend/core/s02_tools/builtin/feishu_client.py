@@ -1,4 +1,5 @@
 """Feishu Open API client for bidirectional communication."""
+
 from __future__ import annotations
 
 import json
@@ -7,8 +8,8 @@ from typing import Any
 
 import httpx
 
-from backend.common.logging import get_logger
 from backend.common.feishu_markdown import strip_markdown_for_feishu
+from backend.common.logging import get_logger
 
 logger = get_logger(component="feishu_client")
 
@@ -78,6 +79,7 @@ class FeishuClient:
         chat_id: str,
         content: str,
         msg_type: str = "text",
+        receive_id_type: str = "chat_id",
     ) -> dict[str, Any]:
         await self._ensure_token()
         content = self._build_content(content, msg_type)
@@ -92,15 +94,57 @@ class FeishuClient:
                 resp = await client.post(
                     _SEND_MSG_URL,
                     headers=self._headers(),
-                    params={"receive_id_type": "chat_id"},
+                    params={"receive_id_type": receive_id_type},
                     json=body,
                 )
                 payload = resp.json()
-            logger.info("feishu_api_request_end", action="send_message", msg_type=msg_type, success=payload.get("code") == 0)
+            logger.info(
+                "feishu_api_request_end",
+                action="send_message",
+                msg_type=msg_type,
+                success=payload.get("code") == 0,
+            )
             return payload
         except Exception as exc:
-            logger.error("feishu_api_request_error", action="send_message", msg_type=msg_type, error=str(exc))
+            logger.error(
+                "feishu_api_request_error", action="send_message", msg_type=msg_type, error=str(exc)
+            )
             raise
+
+    async def send_card(self, chat_id: str, card_content: dict[str, Any]) -> str | None:
+        try:
+            payload = await self.send_message(
+                chat_id,
+                json.dumps(card_content, ensure_ascii=False),
+                msg_type="interactive",
+            )
+            if payload.get("code") != 0:
+                logger.error("feishu_card_send_error", error=str(payload.get("msg", "")))
+                return None
+            data = payload.get("data", {})
+            message_id = data.get("message_id") if isinstance(data, dict) else None
+            return str(message_id) if message_id else None
+        except Exception as exc:
+            logger.error("feishu_card_send_error", error=str(exc))
+            return None
+
+    async def update_card(self, message_id: str, card_content: dict[str, Any]) -> bool:
+        await self._ensure_token()
+        url = f"{_SEND_MSG_URL}/{message_id}"
+        body = {"content": json.dumps(card_content, ensure_ascii=False)}
+        try:
+            logger.info("feishu_api_request_start", action="update_card")
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                resp = await client.patch(url, headers=self._headers(), json=body)
+                payload = resp.json()
+            success = payload.get("code") == 0
+            logger.info("feishu_api_request_end", action="update_card", success=success)
+            if not success:
+                logger.error("feishu_card_update_error", error=str(payload.get("msg", "")))
+            return success
+        except Exception as exc:
+            logger.error("feishu_card_update_error", error=str(exc))
+            return False
 
     async def reply_message(
         self,
@@ -117,10 +161,20 @@ class FeishuClient:
             async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 resp = await client.post(url, headers=self._headers(), json=body)
                 payload = resp.json()
-            logger.info("feishu_api_request_end", action="reply_message", msg_type=msg_type, success=payload.get("code") == 0)
+            logger.info(
+                "feishu_api_request_end",
+                action="reply_message",
+                msg_type=msg_type,
+                success=payload.get("code") == 0,
+            )
             return payload
         except Exception as exc:
-            logger.error("feishu_api_request_error", action="reply_message", msg_type=msg_type, error=str(exc))
+            logger.error(
+                "feishu_api_request_error",
+                action="reply_message",
+                msg_type=msg_type,
+                error=str(exc),
+            )
             raise
 
 

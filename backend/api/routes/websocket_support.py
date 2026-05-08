@@ -13,6 +13,8 @@ from backend.common.types import AgentEvent, Message, Session, ToolCall, ToolRes
 from backend.core.s01_agent_loop import AgentLoop
 from backend.storage import SessionStore
 
+from .websocket_plan_events import plan_event_to_ws_message
+
 
 class LoopSettings(BaseModel):
     model: str = ""
@@ -20,6 +22,7 @@ class LoopSettings(BaseModel):
     workspace: str | None = None
     permission_mode: str = "auto"
     spec_id: str = ""
+    mode: str = "direct"
 
 
 class RunLoopInput(BaseModel):
@@ -47,6 +50,7 @@ def parse_loop_settings(data: dict[str, Any]) -> LoopSettings:
         workspace=str(data.get("workspace", "")).strip() or None,
         permission_mode=str(data.get("permission_mode", "auto")).strip() or "auto",
         spec_id=spec_id,
+        mode=str(data.get("mode", "direct")).strip() or "direct",
     )
 
 
@@ -141,6 +145,9 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
             "error": data.get("error"),
             "message": data.get("message"),
         }
+    plan_message = plan_event_to_ws_message(event)
+    if plan_message is not None:
+        return plan_message
     return {"type": "error", "message": str(getattr(data, "message", data))}
 
 

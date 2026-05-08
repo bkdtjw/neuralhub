@@ -57,7 +57,7 @@ class CliPrinter:
         print("  commands")
         print(
             "    /help  /clear  /provider <name>  /model <name>  "
-            "/workspace <path>  /tools  /exit"
+            "/workspace <path>  /tools  /plan <message>  /plans  /exit"
         )
         print("")
         print(f"  {self._paint('tips: 空行提交 | Ctrl+C 中断 | Ctrl+D 退出', '90')}")

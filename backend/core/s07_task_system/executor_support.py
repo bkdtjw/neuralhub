@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from backend.config.settings import settings as app_settings
@@ -36,8 +37,9 @@ def build_card_meta(
 
 
 def build_report_url(report_path: Path) -> str:
-    base = app_settings.server_base_url or "http://39.106.21.49:8000"
-    return f"{base}/reports/scheduled_tasks/{report_path.name}"
+    base = app_settings.server_base_url or "http://43.111.233.129:8443"
+    encoded_name = quote(report_path.name, safe="")
+    return f"{base}/reports/scheduled_tasks/{encoded_name}"
 
 
 async def save_report(

@@ -26,6 +26,18 @@ AgentEventType = Literal[
     "sub_agent_completed",
     "sub_agent_failed",
     "error",
+    "plan_recon_start",
+    "plan_recon_done",
+    "plan_created",
+    "plan_approved",
+    "plan_step_start",
+    "plan_step_done",
+    "plan_step_failed",
+    "plan_amendment",
+    "plan_steps_updated",
+    "plan_completed",
+    "plan_partial_failed",
+    "plan_cancelled",
 ]
 
 

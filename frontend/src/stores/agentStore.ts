@@ -18,7 +18,7 @@ interface AgentState {
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
-  currentModel: "glm-4-plus",
+  currentModel: "",
   currentProviderId: null,
   providers: [],
   workspace: null,
@@ -28,10 +28,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const providers = await api.listProviders();
       const selected = providers.find((item) => item.id === get().currentProviderId);
       const defaultProvider = providers.find((item) => item.isDefault) ?? providers[0];
+      const provider = selected ?? defaultProvider;
+      const currentModel = get().currentModel;
+      const availableModels = provider?.availableModels ?? [];
+      const modelIsAvailable = availableModels.length === 0 || availableModels.includes(currentModel);
       set({
         providers,
-        currentProviderId: selected?.id ?? defaultProvider?.id ?? null,
-        currentModel: get().currentModel || selected?.defaultModel || defaultProvider?.defaultModel || "glm-4-plus",
+        currentProviderId: provider?.id ?? null,
+        currentModel: currentModel && modelIsAvailable ? currentModel : provider?.defaultModel ?? "",
       });
     } catch (error) {
       console.error("loadProviders failed", error);
