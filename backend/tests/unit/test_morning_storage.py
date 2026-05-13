@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from backend.core.s02_tools.builtin.article_extractor import Article
+from backend.storage.asset_store import AssetStore
+from backend.storage.login_workflow_store import (
+    LoginStatus,
+    LoginWorkflowStore,
+    SiteLoginState,
+)
+from backend.storage.run_trace_store import RunTrace, RunTraceStore
+
+
+def test_asset_store_saves_artifacts(tmp_path: Path) -> None:
+    store = AssetStore(root=tmp_path)
+    shot = store.save_screenshot("task1", "https://example.com/a", b"png")
+    article = store.save_article(
+        "task1",
+        Article(url="https://example.com/a", title="Title", body="Body"),
+    )
+    report = store.save_report("task1", "# report")
+    assert shot.read_bytes() == b"png"
+    assert article.read_text(encoding="utf-8")
+    assert report.read_text(encoding="utf-8") == "# report"
+
+
+@pytest.mark.asyncio
+async def test_run_trace_store_records_and_queries(db_session_factory: object) -> None:
+    store = RunTraceStore(db_session_factory)
+    await store.record(
+        RunTrace(task_id="task1", kind="probe", url="https://example.com", success=True)
+    )
+    rows = await store.query(task_id="task1", kind="probe")
+    assert len(rows) == 1
+    assert rows[0].success is True
+
+
+@pytest.mark.asyncio
+async def test_login_workflow_store_save_get_and_advance(db_session_factory: object) -> None:
+    store = LoginWorkflowStore(db_session_factory)
+    await store.upsert(SiteLoginState(site_id="site1", user_id="u1", status=LoginStatus.EXPIRED))
+    state = await store.get("u1", "site1")
+    assert state is not None
+    assert state.status == LoginStatus.EXPIRED
+
+    workflow_id = await store.create_workflow("u1", ["site1", "site2"])
+    first = await store.advance(workflow_id)
+    assert first is not None
+    assert first.site_id == "site1"
+    assert first.status == LoginStatus.IN_PROGRESS
+    await store.upsert(first.model_copy(update={"status": LoginStatus.FRESH}))
+    second = await store.advance(workflow_id)
+    assert second is not None
+    assert second.site_id == "site2"

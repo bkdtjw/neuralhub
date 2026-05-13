@@ -19,7 +19,13 @@ def build_relogin_card(site: str, step_index: int, total: int) -> dict:
                         button_type="primary",
                         action=CardAction(action_type=action_type, payload={"site": site}),
                     )
-                )
+                ),
+                button(
+                    ButtonSpec(
+                        text="Skip",
+                        action=CardAction(action_type=f"skip_site:{site}", payload={"site": site}),
+                    )
+                ),
             ],
         },
     ]

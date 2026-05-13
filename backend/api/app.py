@@ -4,12 +4,10 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger, setup_logging
@@ -20,11 +18,11 @@ from backend.core import init_agent_runtime
 from backend.storage import SessionStore, init_db
 
 from .middleware.request_trace import RequestTraceMiddleware
+from .feishu_startup import init_feishu_handler
+from .frontend import mount_frontend
 from .lifespan_support import check_readiness, init_task_queue
 
 logger = get_logger(component="api_app")
-_FRONTEND_DIR = Path(os.getenv("FRONTEND_DIST_DIR", "/app/dist/frontend"))
-_RESERVED_FRONTEND_PATHS = {"api", "assets", "health", "metrics", "reports", "v1", "ws"}
 
 
 @asynccontextmanager
@@ -33,6 +31,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     from backend.api.routes.providers import provider_manager
 
     task_scheduler = None
+    morning_cron_scheduler = None
     try:
         await init_db()
         await init_redis()
@@ -81,11 +80,29 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 set_task_executor(executor)
             except Exception:  # noqa: BLE001
                 pass
+            try:
+                from backend.api.routes.feishu_card_handlers import CardHandlerDeps, register_all
+                register_all(
+                    CardHandlerDeps(
+                        feishu_client=feishu_client,
+                        chat_id=app_settings.feishu_chat_id,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("feishu_card_handlers_register_failed")
             await task_scheduler.start()
+            try:
+                from backend.api.morning_report_startup import start_morning_report_cron
+                morning_cron_scheduler = await start_morning_report_cron(
+                    feishu_client,
+                    app_settings.feishu_chat_id,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("morning_report_cron_start_failed")
         except Exception:  # noqa: BLE001
             logger.exception("task_scheduler_start_failed")
         try:
-            _init_feishu_handler(app)
+            init_feishu_handler(app)
         except Exception:  # noqa: BLE001
             logger.exception("feishu_handler_init_failed")
         yield
@@ -97,34 +114,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await task_scheduler.stop()
             except Exception:  # noqa: BLE001
                 pass
+        if morning_cron_scheduler is not None:
+            try:
+                await morning_cron_scheduler.stop()
+            except Exception:  # noqa: BLE001
+                pass
         close_metrics()
         await close_redis()
         try:
             await mcp_server_manager.disconnect_all()
         except Exception as exc:  # noqa: BLE001
             raise AgentError("APP_SHUTDOWN_ERROR", str(exc)) from exc
-
-
-def _init_feishu_handler(app: FastAPI) -> None:
-    if not app_settings.feishu_app_id or not app_settings.feishu_app_secret:
-        return
-    from backend.adapters.provider_manager import ProviderManager
-    from backend.api.routes.feishu import set_handler
-    from backend.api.routes.feishu_handler import FeishuMessageHandler
-    from backend.core.s02_tools.builtin.feishu_client import FeishuClient
-
-    client = FeishuClient(
-        app_id=app_settings.feishu_app_id,
-        app_secret=app_settings.feishu_app_secret,
-    )
-    handler = FeishuMessageHandler(client, ProviderManager())
-    handler.configure_runtime(
-        getattr(app.state, "agent_runtime", None),
-        getattr(app.state, "spec_registry", None),
-        getattr(app.state, "task_queue", None),
-    )
-    set_handler(handler)
-    logger.info("feishu_handler_initialized")
 
 
 def create_app() -> FastAPI:
@@ -190,26 +190,5 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             raise AgentError("HEALTH_READY_ERROR", str(exc)) from exc
 
-    _mount_frontend(app)
+    mount_frontend(app)
     return app
-
-
-def _mount_frontend(app: FastAPI) -> None:
-    index_path = _FRONTEND_DIR / "index.html"
-    assets_dir = _FRONTEND_DIR / "assets"
-    if not index_path.is_file() or not assets_dir.is_dir():
-        logger.warning("frontend_dist_not_found", path=str(_FRONTEND_DIR))
-        return
-
-    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
-
-    @app.get("/", include_in_schema=False)
-    async def frontend_index() -> FileResponse:
-        return FileResponse(index_path)
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def frontend_spa(full_path: str) -> FileResponse:
-        root_segment = full_path.split("/", 1)[0]
-        if root_segment in _RESERVED_FRONTEND_PATHS:
-            raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(index_path)

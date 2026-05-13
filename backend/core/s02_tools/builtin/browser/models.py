@@ -32,6 +32,8 @@ class SiteConfig(BaseModel):
     api_kind: str = ""
     api_url: str = ""
     rss_url: str = ""
+    probe_url: str = ""
+    entry_url: str = ""
 
 
 class PageResult(BaseModel):
