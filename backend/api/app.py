@@ -31,7 +31,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     from backend.api.routes.providers import provider_manager
 
     task_scheduler = None
-    morning_cron_scheduler = None
     try:
         await init_db()
         await init_redis()
@@ -93,9 +92,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             await task_scheduler.start()
             try:
                 from backend.api.morning_report_startup import start_morning_report_cron
-                morning_cron_scheduler = await start_morning_report_cron(
+                await start_morning_report_cron(
                     feishu_client,
-                    app_settings.feishu_chat_id,
+                    app_settings.morning_report_chat_id,
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("morning_report_cron_start_failed")
@@ -114,11 +113,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await task_scheduler.stop()
             except Exception:  # noqa: BLE001
                 pass
-        if morning_cron_scheduler is not None:
-            try:
-                await morning_cron_scheduler.stop()
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            from backend.api.morning_report_startup import stop_morning_report_cron
+            await stop_morning_report_cron()
+        except Exception:  # noqa: BLE001
+            logger.exception("morning_report_cron_stop_failed")
         close_metrics()
         await close_redis()
         try:

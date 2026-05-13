@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from backend.common.errors import AgentError
 from backend.core.s07_task_system.cron_scheduler import CronScheduler, CronSchedulerConfig
 
 
@@ -40,3 +41,21 @@ async def test_cron_scheduler_triggers_and_stops() -> None:
     assert count_after_stop >= 1
     assert len(calls) == count_after_stop
     assert scheduler.list_jobs()[0].name == "minute"
+
+
+def test_cron_scheduler_register_replace() -> None:
+    async def job() -> None:
+        return None
+
+    async def replacement() -> None:
+        return None
+
+    scheduler = CronScheduler()
+    scheduler.register("daily", "0 8 * * *", job)
+    with pytest.raises(AgentError, match="CRON_JOB_DUPLICATE"):
+        scheduler.register("daily", "0 9 * * *", replacement)
+    scheduler.register("daily", "0 9 * * *", replacement, replace=True)
+
+    [registered] = scheduler.list_jobs()
+    assert registered.name == "daily"
+    assert registered.expression == "0 9 * * *"

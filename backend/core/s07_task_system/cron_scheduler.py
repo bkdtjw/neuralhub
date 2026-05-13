@@ -49,9 +49,11 @@ class CronScheduler:
         name: str,
         expression: str,
         callable: Callable[[], Awaitable[None]],
+        *,
+        replace: bool = False,
     ) -> None:
         try:
-            if name in self._jobs:
+            if name in self._jobs and not replace:
                 raise AgentError("CRON_JOB_DUPLICATE", f"Cron job already registered: {name}")
             next_fire_at = self._next_fire(expression, self._now())
             self._jobs[name] = _CronEntry(

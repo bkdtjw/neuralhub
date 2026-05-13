@@ -24,6 +24,7 @@ class HealthCheckConfig(BaseModel):
     chat_id: str
     config_dir: Path = Path("config/sites")
     task_id: str = "morning_health_check"
+    verbose: bool = False
 
 
 class HealthCheckDeps(BaseModel):
@@ -57,7 +58,10 @@ async def run_health_check(
                 )
             )
         expired = [result for result in results if not result.ok]
-        if expired and resolved.feishu_client is not None and config.chat_id:
+        should_send = bool(resolved.feishu_client) and bool(config.chat_id) and (
+            bool(expired) or config.verbose
+        )
+        if should_send:
             await resolved.feishu_client.send_card(
                 config.chat_id,
                 build_health_check_card([item.model_dump(mode="json") for item in results]),

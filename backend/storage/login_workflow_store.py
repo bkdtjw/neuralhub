@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from datetime import datetime
@@ -39,6 +40,14 @@ class SiteLoginState(BaseModel):
 class LoginWorkflowStore:
     def __init__(self, session_factory: SessionFactory | None = None) -> None:
         self._session_factory = session_factory
+        self._advance_locks: dict[str, asyncio.Lock] = {}
+        self._locks_guard = asyncio.Lock()
+
+    async def _get_advance_lock(self, workflow_id: str) -> asyncio.Lock:
+        async with self._locks_guard:
+            if workflow_id not in self._advance_locks:
+                self._advance_locks[workflow_id] = asyncio.Lock()
+            return self._advance_locks[workflow_id]
 
     async def upsert(self, state: SiteLoginState) -> None:
         try:
@@ -102,20 +111,26 @@ class LoginWorkflowStore:
             raise AgentError("LOGIN_WORKFLOW_CREATE_ERROR", str(exc)) from exc
 
     async def advance(self, workflow_id: str) -> SiteLoginState | None:
+        lock = await self._get_advance_lock(workflow_id)
+        async with lock:
+            return await self._advance_locked(workflow_id)
+
+    async def _advance_locked(self, workflow_id: str) -> SiteLoginState | None:
         try:
             async with get_db_session(self._session_factory) as db:
-                rows = (
-                    await db.execute(
-                        select(LoginWorkflowRecord)
-                        .where(LoginWorkflowRecord.workflow_id == workflow_id)
-                        .order_by(LoginWorkflowRecord.current_step)
-                    )
-                ).scalars().all()
-                active = next((row for row in rows if row.status == LoginStatus.IN_PROGRESS), None)
-                target = active or next(
-                    (row for row in rows if row.status == LoginStatus.PENDING),
-                    None,
+                # SQLite ignores row locks; Postgres applies this when deployed there.
+                statement = (
+                    select(LoginWorkflowRecord)
+                    .where(LoginWorkflowRecord.workflow_id == workflow_id)
+                    .order_by(LoginWorkflowRecord.current_step)
+                    .with_for_update(of=LoginWorkflowRecord, skip_locked=False)
                 )
+                rows = (
+                    await db.execute(statement)
+                ).scalars().all()
+                if any(row.status == LoginStatus.IN_PROGRESS for row in rows):
+                    return None
+                target = next((row for row in rows if row.status == LoginStatus.PENDING), None)
                 if target is None:
                     return None
                 target.status = LoginStatus.IN_PROGRESS

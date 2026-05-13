@@ -1,8 +1,9 @@
 ﻿import os
 import sys
+from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 from backend.common.errors import AgentError
 
@@ -41,6 +42,11 @@ class Settings(BaseSettings):
     feishu_chat_id: str = ""
     feishu_verification_token: str = ""
     feishu_encrypt_key: str = ""
+    morning_report_user_ids: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["default"]
+    )
+    morning_report_chat_id: str = ""
+    morning_report_config_dir: str = "config/sites"
     mihomo_api_url: str = "http://127.0.0.1:9090"
     mihomo_secret: str = ""
     mihomo_path: str = ""
@@ -63,6 +69,13 @@ class Settings(BaseSettings):
     llm_fallback_deadline_seconds: float = Field(default=180.0, ge=1.0)
     llm_fallback_circuit_threshold: int = Field(default=3, ge=1)
     llm_fallback_circuit_seconds: float = Field(default=300.0, ge=1.0)
+
+    @field_validator("morning_report_user_ids", mode="before")
+    @classmethod
+    def parse_user_ids(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     model_config = {
         "env_file": os.path.join(

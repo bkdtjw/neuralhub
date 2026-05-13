@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -20,30 +21,34 @@ class AssetStore:
     def __init__(self, root: Path | None = None) -> None:
         self.root = root or Path(os.getenv("ASSET_STORE_DIR", "reports/morning_assets"))
 
-    def save_screenshot(self, task_id: str, url: str, png_bytes: bytes) -> Path:
+    async def save_screenshot(self, task_id: str, url: str, png_bytes: bytes) -> Path:
         try:
             path = self._path(task_id, "screenshots", f"{_hash_url(url)}.png")
-            path.write_bytes(png_bytes)
+            await asyncio.to_thread(path.write_bytes, png_bytes)
             return path
         except Exception as exc:  # noqa: BLE001
             logger.error("asset_screenshot_save_failed", task_id=task_id, url=url, error=str(exc))
             raise AgentError("ASSET_SCREENSHOT_SAVE_ERROR", str(exc)) from exc
 
-    def save_article(self, task_id: str, article: Article) -> Path:
+    async def save_article(self, task_id: str, article: Article) -> Path:
         try:
             filename = f"{_safe_name(article.title or article.url)}.json"
             path = self._path(task_id, "articles", filename)
-            path.write_text(article.model_dump_json(indent=2), encoding="utf-8")
+            await asyncio.to_thread(
+                path.write_text,
+                article.model_dump_json(indent=2),
+                encoding="utf-8",
+            )
             return path
         except Exception as exc:  # noqa: BLE001
             logger.error("asset_article_save_failed", task_id=task_id, error=str(exc))
             raise AgentError("ASSET_ARTICLE_SAVE_ERROR", str(exc)) from exc
 
-    def save_report(self, task_id: str, content: str, fmt: str = "md") -> Path:
+    async def save_report(self, task_id: str, content: str, fmt: str = "md") -> Path:
         try:
             suffix = re.sub(r"[^a-zA-Z0-9]+", "", fmt) or "md"
             path = self._path(task_id, "reports", f"report.{suffix}")
-            path.write_text(content, encoding="utf-8")
+            await asyncio.to_thread(path.write_text, content, encoding="utf-8")
             return path
         except Exception as exc:  # noqa: BLE001
             logger.error("asset_report_save_failed", task_id=task_id, error=str(exc))

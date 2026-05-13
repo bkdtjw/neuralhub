@@ -61,7 +61,7 @@ async def run_morning_report(
         card = build_morning_report_card(report)
         if resolved.feishu_client is not None and config.chat_id:
             await resolved.feishu_client.send_card(config.chat_id, card)
-        report_path = asset_store.save_report(config.task_id, render_markdown(report))
+        report_path = await asset_store.save_report(config.task_id, render_markdown(report))
         await record_task_trace(trace_store, config.task_id, started, True, report_path, items)
         return {
             "success": True,
@@ -138,7 +138,7 @@ async def _extract_and_save(
 ) -> Article:
     started = datetime.now()
     article = await extract_article(page.html, page.url, site_config)
-    asset_store.save_article(task_id, article)
+    await asset_store.save_article(task_id, article)
     await record_step(trace_store, task_id, "extract_article", page.url, started, True, article)
     return article
 
@@ -151,7 +151,7 @@ async def _upload_screenshot(
 ) -> str:
     if page.screenshot_path is None or deps.feishu_client is None:
         return ""
-    saved = asset_store.save_screenshot(task_id, page.url, page.screenshot_path.read_bytes())
+    saved = await asset_store.save_screenshot(task_id, page.url, page.screenshot_path.read_bytes())
     image_key = await deps.feishu_client.upload_image(saved)
     return image_key or ""
 
