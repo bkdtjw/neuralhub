@@ -13,7 +13,7 @@ def test_sms_phone_card_has_form_and_password_fallback() -> None:
     elements = card["body"]["elements"]
     form = next(item for item in elements if item["tag"] == "form")
     assert form["elements"][0]["name"] == "phone"
-    assert form["elements"][0]["input_type"] == "telephone"
+    assert "input_type" not in form["elements"][0]
     assert form["elements"][1]["behaviors"][0]["value"]["action_type"] == (
         "browser_login_sms_request"
     )

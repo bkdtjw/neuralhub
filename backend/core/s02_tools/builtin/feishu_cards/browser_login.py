@@ -12,7 +12,7 @@ def build_sms_phone_card(site: str, session_id: str, reason: str = "") -> dict:
             _form(
                 "browser_login_sms_phone",
                 [
-                    _input("phone", "请输入手机号", "telephone", required=True, max_length=20),
+                    _input("phone", "请输入手机号", required=True, max_length=20),
                     _submit_button(
                         "发送验证码",
                         "browser_login_sms_request",
@@ -39,7 +39,7 @@ def build_sms_code_card(site: str, session_id: str, phone_hint: str = "") -> dic
             _form(
                 "browser_login_sms_code",
                 [
-                    _input("code", "请输入短信验证码", "number", required=True, max_length=10),
+                    _input("code", "请输入短信验证码", required=True, max_length=10),
                     _submit_button(
                         "提交验证码",
                         "browser_login_sms_submit",
@@ -66,8 +66,8 @@ def build_password_card(site: str, session_id: str) -> dict:
             _form(
                 "browser_login_password",
                 [
-                    _input("account", "手机号 / 用户名", "text", required=True, max_length=80),
-                    _input("password", "密码", "password", required=True, max_length=128),
+                    _input("account", "手机号 / 用户名", required=True, max_length=80),
+                    _input("password", "密码", required=True, max_length=128),
                     _submit_button(
                         "提交密码登录",
                         "browser_login_password_submit",
@@ -110,17 +110,17 @@ def _form(name: str, elements: list[dict]) -> dict:
 def _input(
     name: str,
     placeholder: str,
-    input_type: str,
     required: bool = False,
     max_length: int = 80,
 ) -> dict:
+    # Feishu message cards reject phone/password-specific input types in this
+    # schema, so all login fields are submitted as plain strings.
     return {
         "tag": "input",
         "name": name,
         "placeholder": {"tag": "plain_text", "content": placeholder},
         "required": required,
         "max_length": max_length,
-        "input_type": input_type,
         "width": "fill",
     }
 
