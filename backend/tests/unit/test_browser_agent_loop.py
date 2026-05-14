@@ -139,17 +139,19 @@ async def test_main_agent_decide_parses_tool_call() -> None:
         async def get_adapter(self, provider_id: str) -> FakeAdapter:
             return self.adapter
 
+    router = FakeRouter()
     action = await main_agent_loop.main_agent_decide(
         "task",
         [],
         "https://example.com",
         "Example",
         VisionObservation(page_summary="summary"),
-        FakeRouter(),
+        router,
     )
 
     assert action.kind == ActionKind.DONE
     assert action.value == "answer"
+    assert router.adapter.request.tool_choice == "any"
 
 
 def test_stuck_detector_detects_repeated_state() -> None:

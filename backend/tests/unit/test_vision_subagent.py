@@ -63,6 +63,10 @@ async def test_observe_parses_tool_call() -> None:
     assert result.page_summary == "Home page"
     assert result.visible_elements[0].description == "Search box"
     assert result.raw_text == "raw"
+    assert adapter.request.tool_choice == {
+        "type": "function",
+        "function": {"name": "report_observation"},
+    }
     assert adapter.request.messages[1].content[0]["type"] == "image_url"
 
 

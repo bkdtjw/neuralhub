@@ -26,6 +26,8 @@ def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> d
     }
     if request.tools:
         payload["tools"] = to_anthropic_tools(request.tools)
+    if request.tool_choice is not None:
+        payload["tool_choice"] = _to_anthropic_tool_choice(request.tool_choice)
     if stream:
         payload["stream"] = True
     return payload
@@ -55,28 +57,55 @@ def to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
 
 
 def _assistant_message(msg: Message) -> dict[str, Any]:
-    content = [block for block in msg.provider_metadata.get("thinking_blocks", []) if isinstance(block, dict)]
+    thinking_blocks = msg.provider_metadata.get("thinking_blocks", [])
+    content = [
+        block
+        for block in thinking_blocks
+        if isinstance(block, dict)
+    ]
     if msg.content:
         content.append({"type": "text", "text": msg.content})
     for call in msg.tool_calls or []:
-        content.append({"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments})
+        content.append(
+            {"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments}
+        )
     return {"role": "assistant", "content": content or [{"type": "text", "text": ""}]}
 
 
 def to_anthropic_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
     return [
-        {"name": tool.name, "description": tool.description, "input_schema": tool.parameters.model_dump()}
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.parameters.model_dump(),
+        }
         for tool in tools
     ]
+
+
+def _to_anthropic_tool_choice(choice: str | dict[str, Any]) -> str | dict[str, Any]:
+    if isinstance(choice, str):
+        return {"type": "any"} if choice in {"any", "required"} else {"type": choice}
+    if choice.get("type") == "function":
+        name = choice.get("function", {}).get("name", "")
+        if name:
+            return {"type": "tool", "name": name}
+    return choice
 
 
 def parse_response(data: dict[str, Any]) -> LLMResponse:
     if data.get("success") is False:
         raise LLMError("API_ERROR", str(data.get("msg") or data), "anthropic", None)
     content_blocks = data.get("content", [])
-    content = "".join(block.get("text", "") for block in content_blocks if block.get("type") == "text")
+    content = "".join(
+        block.get("text", "") for block in content_blocks if block.get("type") == "text"
+    )
     tool_calls = [
-        ToolCall(id=block.get("id", ""), name=block.get("name", ""), arguments=block.get("input", {}))
+        ToolCall(
+            id=block.get("id", ""),
+            name=block.get("name", ""),
+            arguments=block.get("input", {}),
+        )
         for block in content_blocks
         if block.get("type") == "tool_use"
     ]
@@ -120,7 +149,11 @@ def parse_stream_line(event_type: str, raw: str, provider: str) -> StreamChunk |
         if block.get("type") == "tool_use":
             return StreamChunk(
                 type="tool_call",
-                data={"id": block.get("id", ""), "name": block.get("name", ""), "arguments": block.get("input", {})},
+                data={
+                    "id": block.get("id", ""),
+                    "name": block.get("name", ""),
+                    "arguments": block.get("input", {}),
+                },
             )
     if event_type == "error":
         detail = data.get("error", {}).get("message", str(data))

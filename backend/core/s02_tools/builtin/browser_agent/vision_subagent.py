@@ -47,6 +47,7 @@ async def observe(
             model=provider.default_model,
             messages=_build_messages(request),
             tools=[_report_observation_tool()],
+            tool_choice={"type": "function", "function": {"name": "report_observation"}},
             temperature=0.0,
             max_tokens=4096,
         )

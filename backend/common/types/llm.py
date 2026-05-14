@@ -36,6 +36,7 @@ class LLMRequest(BaseModel):
     model: str
     messages: list[Message]
     tools: list[ToolDefinition] | None = None
+    tool_choice: str | dict[str, Any] | None = None
     temperature: float = 0.7
     max_tokens: int = 16384
     prompt_cache_key: str = ""

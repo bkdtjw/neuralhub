@@ -131,6 +131,7 @@ async def main_agent_decide(
                 model=provider.default_model,
                 messages=_decision_messages(task, history, current_url, current_title, observation),
                 tools=BROWSER_ACTION_TOOLS,
+                tool_choice="any",
                 temperature=0.0,
                 max_tokens=2048,
             )
