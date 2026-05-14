@@ -15,10 +15,12 @@ class BrowserSession:
         user_id: str,
         storage_state_path: Path | None = None,
         headless: bool = True,
+        device_scale_factor: float = 1.0,
     ) -> None:
         self.user_id = user_id
         self.storage_state_path = storage_state_path
         self.headless = headless
+        self.device_scale_factor = device_scale_factor
         self._playwright: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -29,7 +31,7 @@ class BrowserSession:
 
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.launch(headless=self.headless)
-            context_args: dict[str, Any] = {}
+            context_args: dict[str, Any] = {"device_scale_factor": self.device_scale_factor}
             if self.storage_state_path and self.storage_state_path.exists():
                 context_args["storage_state"] = str(self.storage_state_path)
             self._context = await self._browser.new_context(**context_args)
