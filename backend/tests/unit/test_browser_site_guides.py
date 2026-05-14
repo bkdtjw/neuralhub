@@ -12,6 +12,7 @@ def test_resolve_jd_site_guide_from_chinese_task() -> None:
     assert guide is not None
     assert guide.domain == "jd.com"
     assert "corporate.jd.com" in guide.instructions
+    assert "storage_state 文件存在只代表有历史 cookie" in guide.instructions
     assert "扫码" in guide.instructions
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.adapters.role_router import RoleRouter
+from backend.common.logging import get_logger
 from backend.common.types import (
     ToolArtifact,
     ToolDefinition,
@@ -18,6 +19,8 @@ from backend.storage.asset_store import AssetStore
 from .main_agent_loop import run_browser_agent
 from .models import BrowserAgentConfig
 from .site_guides import resolve_initial_url, resolve_site_guide
+
+logger = get_logger(component="browse_web_tool")
 
 
 def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, ToolExecuteFn]:
@@ -76,6 +79,17 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
             artifacts = _core_screenshot_artifacts(result.screenshots, result.success, result.reason)
             _delete_non_core_screenshots(result.screenshots, artifacts)
             _cleanup_unused_temp_root(temp_root, artifacts)
+            logger.info(
+                "browse_web_result",
+                success=result.success,
+                reason=result.reason,
+                steps=result.steps_taken,
+                screenshot_count=len(result.screenshots),
+                artifact_count=len(artifacts),
+                domain=raw_domain or (guide.domain if guide is not None else ""),
+                initial_url=resolve_initial_url(task, guide),
+                site_guide=guide.site_id if guide is not None else "",
+            )
             return ToolResult(
                 output=output,
                 is_error=not result.success and not needs_human,

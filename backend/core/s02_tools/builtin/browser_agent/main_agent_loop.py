@@ -67,7 +67,7 @@ async def run_browser_agent(
                     role_router,
                     config.vision_subagent_provider_id,
                 )
-                if needs_human_intervention(observation):
+                if needs_human_intervention(observation, current_url):
                     action = BrowserAction(
                         kind=ActionKind.SCREENSHOT,
                         reason=observation.screenshot_reason or "need_human",

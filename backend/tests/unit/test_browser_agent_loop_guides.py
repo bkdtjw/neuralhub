@@ -102,3 +102,39 @@ async def test_run_browser_agent_stops_fast_for_human_gate(
     assert "需要扫码登录" in result.content
     assert len(result.screenshots) == 1
     assert result.screenshots[0].read_bytes() == b"same"
+
+
+async def test_run_browser_agent_treats_jd_abnormal_page_as_human_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    class FakeAssetStore:
+        async def save_screenshot(self, task_id: str, url: str, png_bytes: bytes):
+            path = tmp_path / f"{task_id}.png"
+            path.write_bytes(png_bytes)
+            return path
+
+    async def observe_abnormal_page(*_args, **_kwargs) -> VisionObservation:
+        return VisionObservation(
+            page_summary="当前页面异常，提示内容太火爆了，请稍后再试，并显示切换账号",
+            screenshot_importance=0.2,
+            need_human=False,
+        )
+
+    async def decide(*_args, **_kwargs) -> BrowserAction:
+        raise AssertionError("decision should not run for JD abnormal account page")
+
+    monkeypatch.setattr(main_agent_loop, "smart_browse", fake_smart_browse)
+    monkeypatch.setattr(main_agent_loop, "BrowserController", FakeController)
+    monkeypatch.setattr(main_agent_loop, "observe", observe_abnormal_page)
+    monkeypatch.setattr(main_agent_loop, "main_agent_decide", decide)
+
+    result = await main_agent_loop.run_browser_agent(
+        BrowserAgentConfig(task="查京东商品价格", initial_url="https://www.jd.com?from=pc_search_sd"),
+        object(),
+        FakeAssetStore(),
+    )
+
+    assert result.success is False
+    assert result.reason == "need_human"
+    assert "当前页面异常" in result.content

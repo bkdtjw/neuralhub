@@ -28,6 +28,7 @@ async def test_feishu_agent_loop_adds_browse_web_prompt_hint(
 
     assert "browse_web" in loop._config.system_prompt  # noqa: SLF001
     assert "base" in loop._config.system_prompt  # noqa: SLF001
+    assert "storage_state/cookie 文件存在不等于已经登录" in loop._config.system_prompt  # noqa: SLF001
 
 
 @pytest.mark.asyncio

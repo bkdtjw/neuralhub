@@ -21,13 +21,34 @@ _HUMAN_GATE_TERMS = (
     "访问受限",
 )
 
+_FORCED_HUMAN_GATE_TERMS = (
+    "captcha",
+    "verification",
+    "verify",
+    "qr",
+    "passport.jd.com",
+    "二维码",
+    "扫码",
+    "验证码",
+    "短信",
+    "验证",
+    "风控",
+    "安全验证",
+    "访问受限",
+    "页面异常",
+    "内容太火爆",
+    "切换账号",
+)
 
-def needs_human_intervention(observation: VisionObservation) -> bool:
+def needs_human_intervention(observation: VisionObservation, current_url: str = "") -> bool:
+    text = f"{current_url} {_observation_text(observation)}".lower()
+    if any(term in text for term in _FORCED_HUMAN_GATE_TERMS):
+        return True
     if not observation.need_human:
         return False
     if observation.screenshot_importance >= 0.5 or observation.screenshot_reason.strip():
         return True
-    return any(term in _observation_text(observation).lower() for term in _HUMAN_GATE_TERMS)
+    return any(term in text for term in _HUMAN_GATE_TERMS)
 
 
 def human_intervention_content(observation: VisionObservation) -> str:
