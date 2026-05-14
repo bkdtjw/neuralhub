@@ -99,10 +99,17 @@ class BrowserLoginSessionManager:
                         session_id,
                     )
                     continue
-                await request_sms_code(page, phone)
+                sms_result = await request_sms_code(page, phone)
+                if sms_result.status == "sent":
+                    await self._send_card(
+                        chat_id,
+                        build_sms_code_card(site, session_id, _mask_phone(phone)),
+                        session_id,
+                    )
+                    continue
                 await self._send_card(
                     chat_id,
-                    build_sms_code_card(site, session_id, _mask_phone(phone)),
+                    build_sms_phone_card(site, session_id, sms_result.detail),
                     session_id,
                 )
                 continue

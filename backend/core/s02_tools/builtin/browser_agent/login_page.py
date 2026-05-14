@@ -7,9 +7,9 @@ from backend.core.s02_tools.builtin.browser import SmartPage
 from .login_session_models import LoginAssistResult
 
 
-async def request_sms_code(page: SmartPage, phone: str) -> None:
+async def request_sms_code(page: SmartPage, phone: str) -> LoginAssistResult:
     await try_click(page, ["text=短信登录", "text=手机短信登录", "text=短信验证码登录"])
-    await try_fill(
+    phone_filled = await try_fill(
         page,
         [
             "input[type='tel']",
@@ -21,7 +21,18 @@ async def request_sms_code(page: SmartPage, phone: str) -> None:
         ],
         phone,
     )
-    await try_click(page, ["text=获取验证码", "text=发送验证码", "text=获取短信验证码"])
+    if not phone_filled:
+        return LoginAssistResult(status="phone_input_missing", detail="未找到手机号输入框")
+    button_clicked = await try_click(page, ["text=获取验证码", "text=发送验证码", "text=获取短信验证码"])
+    if not button_clicked:
+        return LoginAssistResult(status="sms_button_missing", detail="未找到发送验证码按钮")
+    await page.wait_for_timeout(1500)
+    text = await body_text(page)
+    if has_blocked(text):
+        return LoginAssistResult(status="blocked", detail=summarize(text))
+    if sms_send_confirmed(text):
+        return LoginAssistResult(status="sent", detail="短信验证码已请求")
+    return LoginAssistResult(status="unconfirmed", detail=summarize(text) or "未确认短信验证码已发送")
 
 
 async def submit_sms_code(page: SmartPage, code: str) -> None:
@@ -91,7 +102,23 @@ def has_login_success(text: str) -> bool:
 def has_blocked(text: str) -> bool:
     return any(
         marker in text
-        for marker in ("验证码", "安全验证", "访问受限", "风控", "当前页面异常", "扫码存在风险")
+        for marker in (
+            "安全验证",
+            "访问受限",
+            "风控",
+            "当前页面异常",
+            "扫码存在风险",
+            "拖动滑块",
+            "图形验证码",
+            "验证身份",
+        )
+    )
+
+
+def sms_send_confirmed(text: str) -> bool:
+    return any(
+        marker in text
+        for marker in ("验证码已发送", "发送成功", "重新获取", "重新发送", "秒后", "s后")
     )
 
 
