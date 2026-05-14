@@ -44,6 +44,8 @@ async def run_browser_agent(
         ) as page:
             controller = BrowserController(page)
             detector = StuckDetector(window=3)
+            if config.initial_url:
+                await controller.goto(config.initial_url)
             for step in range(config.max_steps):
                 if time.monotonic() - started > config.timeout_seconds:
                     return _result(False, "timeout", step, history, screenshots)
@@ -59,7 +61,7 @@ async def run_browser_agent(
                         url=current_url,
                         title=current_title,
                         viewport=config.viewport,
-                        task_hint=config.task,
+                        task_hint=_task_hint(config),
                         last_action_kind=last_kind,
                     ),
                     role_router,
@@ -90,6 +92,7 @@ async def run_browser_agent(
                     observation,
                     role_router,
                     config.main_agent_provider_id,
+                    config.site_guide,
                 )
                 if action.kind == ActionKind.DONE:
                     return _result(True, "done", step + 1, history, screenshots, action.value)
@@ -112,6 +115,12 @@ def _last_action_kind(history: list[dict[str, Any]]) -> str:
         return ""
     action = history[-1].get("action", {})
     return str(action.get("kind", "")) if isinstance(action, dict) else ""
+
+
+def _task_hint(config: BrowserAgentConfig) -> str:
+    if not config.site_guide:
+        return config.task
+    return f"{config.task}\n\n站点说明书：\n{config.site_guide}"
 
 
 def _append_history(

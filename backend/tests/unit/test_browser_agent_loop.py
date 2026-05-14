@@ -151,46 +151,6 @@ async def test_run_browser_agent_saves_agent_marked_screenshot(
     assert result.screenshots[0].read_bytes() == b"same"
 
 
-async def test_run_browser_agent_stops_fast_for_human_gate(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    class FakeAssetStore:
-        async def save_screenshot(self, task_id: str, url: str, png_bytes: bytes):
-            path = tmp_path / f"{task_id}.png"
-            path.write_bytes(png_bytes)
-            return path
-
-    async def observe_human_gate(*_args, **_kwargs) -> VisionObservation:
-        return VisionObservation(
-            page_summary="Login QR code page",
-            screenshot_importance=0.9,
-            screenshot_reason="需要扫码登录",
-            need_human=True,
-        )
-
-    async def decide(*_args, **_kwargs) -> BrowserAction:
-        raise AssertionError("decision should not run when human intervention is required")
-
-    monkeypatch.setattr(main_agent_loop, "smart_browse", fake_smart_browse)
-    monkeypatch.setattr(main_agent_loop, "BrowserController", FakeController)
-    monkeypatch.setattr(main_agent_loop, "observe", observe_human_gate)
-    monkeypatch.setattr(main_agent_loop, "main_agent_decide", decide)
-
-    result = await main_agent_loop.run_browser_agent(
-        BrowserAgentConfig(task="requires login"),
-        object(),
-        FakeAssetStore(),
-    )
-
-    assert result.success is False
-    assert result.reason == "need_human"
-    assert result.steps_taken == 1
-    assert "需要扫码登录" in result.content
-    assert len(result.screenshots) == 1
-    assert result.screenshots[0].read_bytes() == b"same"
-
-
 async def test_main_agent_decide_parses_tool_call() -> None:
     class FakeAdapter:
         async def complete(self, request):

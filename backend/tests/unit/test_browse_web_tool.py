@@ -35,6 +35,20 @@ async def test_browse_web_tool_execute_returns_success(monkeypatch: pytest.Monke
     assert config.max_steps == 30
 
 
+async def test_browse_web_tool_applies_jd_site_guide(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_mock = AsyncMock(return_value=BrowserAgentResult(success=True, content="answer"))
+    monkeypatch.setattr(browse_tool, "run_browser_agent", run_mock)
+    _, execute = browse_tool.create_browse_web_tool(object())
+
+    result = await execute({"task": "用浏览器打开 https://www.jd.com/ 查看京东"})
+
+    config = run_mock.await_args.args[0]
+    assert result.is_error is False
+    assert config.domain == "jd.com"
+    assert config.initial_url == "https://www.jd.com?from=pc_search_sd"
+    assert "corporate.jd.com" in config.site_guide
+
+
 async def test_browse_web_tool_attaches_core_screenshot_artifact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

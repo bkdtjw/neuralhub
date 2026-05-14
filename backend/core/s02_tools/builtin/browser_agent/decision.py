@@ -37,6 +37,7 @@ async def main_agent_decide(
     observation: VisionObservation,
     role_router: RoleRouter,
     provider_id: str = "",
+    site_guide: str = "",
 ) -> BrowserAction:
     try:
         provider = await role_router.resolve_provider("text", provider_id)
@@ -44,7 +45,14 @@ async def main_agent_decide(
         response = await adapter.complete(  # type: ignore[attr-defined]
             LLMRequest(
                 model=provider.default_model,
-                messages=_decision_messages(task, history, current_url, current_title, observation),
+                messages=_decision_messages(
+                    task,
+                    history,
+                    current_url,
+                    current_title,
+                    observation,
+                    site_guide,
+                ),
                 tools=BROWSER_ACTION_TOOLS,
                 tool_choice="any",
                 temperature=0.0,
@@ -68,9 +76,11 @@ def _decision_messages(
     current_url: str,
     current_title: str,
     observation: VisionObservation,
+    site_guide: str = "",
 ) -> list[Message]:
     payload = {
         "task": task,
+        "site_guide": site_guide,
         "current_url": current_url,
         "current_title": current_title,
         "history": history,
