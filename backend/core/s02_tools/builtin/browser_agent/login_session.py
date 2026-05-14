@@ -5,6 +5,7 @@ import secrets
 import time
 from typing import Any
 
+from backend.common.logging import get_logger
 from backend.core.s02_tools.builtin.browser import SmartPage
 from backend.core.s02_tools.builtin.feishu_cards import (
     build_password_card,
@@ -14,6 +15,8 @@ from backend.core.s02_tools.builtin.feishu_cards import (
 
 from .login_page import request_sms_code, submit_password, submit_sms_code, wait_login_result
 from .login_session_models import LoginAssistResult, LoginCardInput
+
+logger = get_logger(component="browser_login_session")
 
 
 class BrowserLoginSessionManager:
@@ -100,6 +103,12 @@ class BrowserLoginSessionManager:
                     )
                     continue
                 sms_result = await request_sms_code(page, phone)
+                logger.info(
+                    "browser_login_sms_request_result",
+                    status=sms_result.status,
+                    detail=sms_result.detail,
+                    site=site,
+                )
                 if sms_result.status == "sent":
                     await self._send_card(
                         chat_id,
