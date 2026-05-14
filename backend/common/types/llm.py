@@ -29,6 +29,7 @@ class ProviderConfig(BaseModel):
     prompt_cache_retention: Literal["in_memory", "24h"] | None = None
     extra_body: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
+    roles: str = ""
 
 
 class LLMRequest(BaseModel):

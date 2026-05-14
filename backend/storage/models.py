@@ -66,6 +66,7 @@ class ProviderRecord(Base):
     extra_body_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    roles: Mapped[str] = mapped_column(String(200), default="", nullable=False)
 
 
 class MCPServerRecord(Base):

@@ -160,7 +160,9 @@ def register_builtin_tools(
                             or os.environ.get("TWITTER_COOKIES_FILE", "twitter_cookies.json"),
                         ),
                         youtube_api_key=resolved_youtube_api_key,
-                        youtube_proxy_url=youtube_proxy_url or os.environ.get("YOUTUBE_PROXY_URL", ""),
+                        youtube_proxy_url=(
+                            youtube_proxy_url or os.environ.get("YOUTUBE_PROXY_URL", "")
+                        ),
                     )
                 )
             )
@@ -172,12 +174,21 @@ def register_builtin_tools(
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
 
+    try:
+        from backend.adapters.role_router import RoleRouter
+
+        from .browser_agent import create_browse_web_tool
+
+        tools.append(create_browse_web_tool(RoleRouter()))
+    except ImportError:
+        pass
+
     # 灵犀金融数据Skills
     try:
         from .lingxi import (
             create_lingxi_financial_search_tool,
-            create_lingxi_realtime_marketdata_tool,
             create_lingxi_ranklist_tool,
+            create_lingxi_realtime_marketdata_tool,
             create_lingxi_smart_stock_selection_tool,
         )
 

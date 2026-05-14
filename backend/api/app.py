@@ -17,10 +17,10 @@ from backend.config import settings as app_settings
 from backend.core import init_agent_runtime
 from backend.storage import SessionStore, init_db
 
-from .middleware.request_trace import RequestTraceMiddleware
 from .feishu_startup import init_feishu_handler
 from .frontend import mount_frontend
 from .lifespan_support import check_readiness, init_task_queue
+from .middleware.request_trace import RequestTraceMiddleware
 
 logger = get_logger(component="api_app")
 
@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
         logs,
         mcp,
         metrics,
+        provider_roles,
         providers,
         sessions,
         websocket,
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(websocket.router)
     app.include_router(sessions.router)
     app.include_router(providers.router)
+    app.include_router(provider_roles.router)
     app.include_router(mcp.router)
     app.include_router(metrics.router)
     app.include_router(logs.router)

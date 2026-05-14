@@ -16,6 +16,7 @@ class AddProviderRequest(BaseModel):
     enable_prompt_cache: bool = False
     prompt_cache_retention: Literal["in_memory", "24h"] | None = None
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    roles: str = ""
 
 
 class ProviderResponse(BaseModel):
@@ -33,6 +34,7 @@ class ProviderResponse(BaseModel):
     extra_body: dict[str, Any] = Field(default_factory=dict)
     is_default: bool = False
     enabled: bool = True
+    roles: str = ""
 
 
 class TestConnectionResponse(BaseModel):
@@ -58,6 +60,7 @@ class ProviderUpdateRequest(BaseModel):
     prompt_cache_retention: Literal["in_memory", "24h"] | None = None
     extra_body: dict[str, Any] | None = None
     enabled: bool | None = None
+    roles: str | None = None
 
 
 class ProviderListResponse(BaseModel):
