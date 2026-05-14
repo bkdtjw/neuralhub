@@ -66,13 +66,14 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
                 role_router,
                 AssetStore(root=temp_root) if temp_root is not None else None,
             )
-            output = result.content if result.success else f"Browse failed: {result.reason}"
-            artifacts = _core_screenshot_artifacts(result.screenshots, result.success)
+            needs_human = result.reason == "need_human"
+            output = result.content if result.success or needs_human else f"Browse failed: {result.reason}"
+            artifacts = _core_screenshot_artifacts(result.screenshots, result.success, result.reason)
             _delete_non_core_screenshots(result.screenshots, artifacts)
             _cleanup_unused_temp_root(temp_root, artifacts)
             return ToolResult(
                 output=output,
-                is_error=not result.success,
+                is_error=not result.success and not needs_human,
                 diffs=[],
                 artifacts=artifacts,
             )
@@ -91,7 +92,11 @@ def _new_temp_root() -> Path:
     return Path(tempfile.mkdtemp(prefix="browse_web_"))
 
 
-def _core_screenshot_artifacts(paths: list[Path], success: bool) -> list[ToolArtifact]:
+def _core_screenshot_artifacts(
+    paths: list[Path],
+    success: bool,
+    reason: str = "",
+) -> list[ToolArtifact]:
     if not paths:
         return []
     path = paths[-1]
@@ -100,11 +105,17 @@ def _core_screenshot_artifacts(paths: list[Path], success: bool) -> list[ToolArt
             kind="image",
             path=str(path),
             mime_type="image/png",
-            label="browse_web_result" if success else "browse_web_error",
+            label=_artifact_label(success, reason),
             source="browse_web",
             temporary=True,
         )
     ]
+
+
+def _artifact_label(success: bool, reason: str) -> str:
+    if reason == "need_human":
+        return "browse_web_human_required"
+    return "browse_web_result" if success else "browse_web_error"
 
 
 def _delete_non_core_screenshots(paths: list[Path], artifacts: list[ToolArtifact]) -> None:

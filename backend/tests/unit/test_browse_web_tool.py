@@ -62,6 +62,31 @@ async def test_browse_web_tool_attaches_core_screenshot_artifact(
     assert run_mock.await_args.args[2].root.exists() is False
 
 
+async def test_browse_web_tool_returns_human_gate_as_non_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    shot = tmp_path / "qr.png"
+    shot.write_bytes(b"qr")
+    run_mock = AsyncMock(
+        return_value=BrowserAgentResult(
+            success=False,
+            reason="need_human",
+            content="需要人工处理后继续：需要扫码登录。",
+            screenshots=[shot],
+        )
+    )
+    monkeypatch.setattr(browse_tool, "run_browser_agent", run_mock)
+    _, execute = browse_tool.create_browse_web_tool(object())
+
+    result = await execute({"task": "login required"})
+
+    assert result.is_error is False
+    assert "需要扫码登录" in result.output
+    assert result.artifacts[0].label == "browse_web_human_required"
+    assert result.artifacts[0].path == str(shot)
+
+
 def test_builtin_tools_registers_browse_web() -> None:
     registry = ToolRegistry()
 
