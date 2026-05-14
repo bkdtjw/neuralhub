@@ -12,6 +12,7 @@ from .controller import BrowserController
 from .decision import SYSTEM_PROMPT_MAIN, main_agent_decide
 from .evidence import save_evidence_screenshot
 from .human_gate import human_intervention_content, needs_human_intervention
+from .login_detection import should_assist_login, site_label
 from .models import (
     ActionKind,
     BrowserAction,
@@ -32,6 +33,7 @@ async def run_browser_agent(
     config: BrowserAgentConfig,
     role_router: RoleRouter,
     asset_store: AssetStore | None = None,
+    login_assistant: Any | None = None,
 ) -> BrowserAgentResult:
     history: list[dict[str, Any]] = []
     screenshots = []
@@ -67,6 +69,31 @@ async def run_browser_agent(
                     role_router,
                     config.vision_subagent_provider_id,
                 )
+                if login_assistant is not None and should_assist_login(
+                    config, observation, current_url
+                ):
+                    assist_result = await login_assistant.assist(
+                        page,
+                        site_label(config),
+                        observation.screenshot_reason or observation.page_summary,
+                    )
+                    if assist_result.status == "success":
+                        continue
+                    current_url = str(getattr(page, "url", current_url))
+                    screenshot = await controller.take_screenshot()
+                    action = BrowserAction(kind=ActionKind.SCREENSHOT, reason=assist_result.status)
+                    exec_result = await save_evidence_screenshot(
+                        asset_store, screenshots, current_url, screenshot
+                    )
+                    _append_history(history, step, current_url, observation, action, exec_result)
+                    return _result(
+                        False,
+                        "need_human",
+                        step + 1,
+                        history,
+                        screenshots,
+                        f"登录未完成：{assist_result.detail or assist_result.status}",
+                    )
                 if needs_human_intervention(observation, current_url):
                     action = BrowserAction(
                         kind=ActionKind.SCREENSHOT,

@@ -138,3 +138,38 @@ async def test_run_browser_agent_treats_jd_abnormal_page_as_human_gate(
     assert result.success is False
     assert result.reason == "need_human"
     assert "当前页面异常" in result.content
+
+
+async def test_run_browser_agent_uses_login_assistant_before_human_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeLoginAssistant:
+        async def assist(self, *_args, **_kwargs):
+            return type("Result", (), {"status": "success", "detail": "ok"})()
+
+    calls = {"decide": 0}
+    observes = {"count": 0}
+
+    async def observe_login_page(*_args, **_kwargs) -> VisionObservation:
+        observes["count"] += 1
+        if observes["count"] == 1:
+            return VisionObservation(page_summary="京东登录页面，支持短信登录")
+        return VisionObservation(page_summary="京东首页")
+
+    async def decide(*_args, **_kwargs) -> BrowserAction:
+        calls["decide"] += 1
+        return BrowserAction(kind=ActionKind.DONE, value="done")
+
+    monkeypatch.setattr(main_agent_loop, "smart_browse", fake_smart_browse)
+    monkeypatch.setattr(main_agent_loop, "BrowserController", FakeController)
+    monkeypatch.setattr(main_agent_loop, "observe", observe_login_page)
+    monkeypatch.setattr(main_agent_loop, "main_agent_decide", decide)
+
+    result = await main_agent_loop.run_browser_agent(
+        BrowserAgentConfig(task="京东登录", domain="jd.com", max_steps=2),
+        object(),
+        login_assistant=FakeLoginAssistant(),
+    )
+
+    assert result.success is True
+    assert calls["decide"] == 1

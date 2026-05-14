@@ -23,7 +23,11 @@ from .site_guides import resolve_initial_url, resolve_site_guide
 logger = get_logger(component="browse_web_tool")
 
 
-def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, ToolExecuteFn]:
+def create_browse_web_tool(
+    role_router: RoleRouter,
+    login_manager: Any | None = None,
+    chat_id: str = "",
+) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="browse_web",
         description=(
@@ -73,6 +77,11 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
                 ),
                 role_router,
                 AssetStore(root=temp_root) if temp_root is not None else None,
+                (
+                    login_manager.for_chat(chat_id)
+                    if login_manager is not None and chat_id
+                    else None
+                ),
             )
             needs_human = result.reason == "need_human"
             output = result.content if result.success or needs_human else f"Browse failed: {result.reason}"

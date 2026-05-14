@@ -168,13 +168,6 @@ async def card_action(request: Request) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
 
-    # Debug: dump raw payload to file
-    import pathlib
-
-    pathlib.Path("/tmp/card_action_debug.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2)
-    )
-
     # Challenge verification (Feishu sends this when configuring callback URL)
     if data.get("type") == "url_verification":
         return {"challenge": data.get("challenge", "")}

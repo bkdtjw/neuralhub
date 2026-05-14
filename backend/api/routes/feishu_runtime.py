@@ -11,6 +11,7 @@ from backend.config import get_redis
 from backend.config.settings import settings as app_settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
+from backend.core.s02_tools.builtin.browser_agent.login_session import browser_login_manager
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
@@ -69,6 +70,8 @@ async def build_agent_loop(
         agent_runtime=agent_runtime,
         spec_registry=spec_registry,
         task_queue=task_queue,
+        browser_login_manager=browser_login_manager,
+        browser_login_chat_id=session_id,
     )
     bridge = MCPToolBridge(MCPServerManager(), registry)
     await bridge.sync_all()

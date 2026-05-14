@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from backend.adapters.base import LLMAdapter
 from backend.common.types import AgentEventHandler, LLMRequest, Message
@@ -52,6 +52,8 @@ def register_builtin_tools(
     event_handler: AgentEventHandler | None = None,
     is_sub_agent: bool = False,
     parent_task_id: str = "",
+    browser_login_manager: Any | None = None,
+    browser_login_chat_id: str = "",
 ) -> None:
     """根据权限模式注册不同的工具集。"""
     tools = (
@@ -179,7 +181,13 @@ def register_builtin_tools(
 
         from .browser_agent import create_browse_web_tool
 
-        tools.append(create_browse_web_tool(RoleRouter()))
+        tools.append(
+            create_browse_web_tool(
+                RoleRouter(),
+                login_manager=browser_login_manager,
+                chat_id=browser_login_chat_id,
+            )
+        )
     except ImportError:
         pass
 
