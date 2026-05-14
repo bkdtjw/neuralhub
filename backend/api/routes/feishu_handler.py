@@ -28,6 +28,7 @@ from backend.core.s01_agent_loop import AgentLoop, PlanExecuteRunner
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
 from backend.storage.session_store import SessionStore
 
+from .feishu_browse_artifacts import send_browse_web_artifacts
 from .feishu_menu_state import FeishuMenuState
 from .feishu_plan_control import (
     RUNNING_REPLY,
@@ -217,6 +218,7 @@ class FeishuMessageHandler:
                     content = resolve_reply_text(result)
                     await self._persist_turn(chat_id, loop)
                     await self._reply_loop_result(loop, message_id, content)
+                    await send_browse_web_artifacts(self, chat_id, loop)
                     logger.info(
                         "feishu_message_end",
                         chat_id=chat_id,

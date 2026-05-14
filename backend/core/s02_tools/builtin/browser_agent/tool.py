@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from backend.adapters.role_router import RoleRouter
-from backend.common.types import ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
+from backend.common.types import (
+    ToolArtifact,
+    ToolDefinition,
+    ToolExecuteFn,
+    ToolParameterSchema,
+    ToolResult,
+)
+from backend.storage.asset_store import AssetStore
 
 from .main_agent_loop import run_browser_agent
 from .models import BrowserAgentConfig
@@ -28,6 +38,10 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
                     "type": "string",
                     "description": "Override main agent provider",
                 },
+                "screenshot_policy": {
+                    "type": "string",
+                    "description": "none or core. Default core sends only final/evidence screenshot.",
+                },
             },
             required=["task"],
         ),
@@ -39,6 +53,8 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
             if not task:
                 return ToolResult(output="task is required", is_error=True)
             max_steps = min(int(args.get("max_steps", 15) or 15), 30)
+            policy = _screenshot_policy(args)
+            temp_root = _new_temp_root() if policy == "core" else None
             result = await run_browser_agent(
                 BrowserAgentConfig(
                     task=task,
@@ -48,13 +64,63 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
                     main_agent_provider_id=str(args.get("main_agent_provider_id", "") or ""),
                 ),
                 role_router,
+                AssetStore(root=temp_root) if temp_root is not None else None,
             )
             output = result.content if result.success else f"Browse failed: {result.reason}"
-            return ToolResult(output=output, is_error=not result.success, diffs=[])
+            artifacts = _core_screenshot_artifacts(result.screenshots, result.success)
+            _delete_non_core_screenshots(result.screenshots, artifacts)
+            _cleanup_unused_temp_root(temp_root, artifacts)
+            return ToolResult(
+                output=output,
+                is_error=not result.success,
+                diffs=[],
+                artifacts=artifacts,
+            )
         except Exception as exc:  # noqa: BLE001
             return ToolResult(output=f"Browse failed: {exc}", is_error=True)
 
     return definition, execute
+
+
+def _screenshot_policy(args: dict[str, Any]) -> str:
+    value = str(args.get("screenshot_policy", "core") or "core").strip().lower()
+    return value if value in {"core", "none"} else "core"
+
+
+def _new_temp_root() -> Path:
+    return Path(tempfile.mkdtemp(prefix="browse_web_"))
+
+
+def _core_screenshot_artifacts(paths: list[Path], success: bool) -> list[ToolArtifact]:
+    if not paths:
+        return []
+    path = paths[-1]
+    return [
+        ToolArtifact(
+            kind="image",
+            path=str(path),
+            mime_type="image/png",
+            label="browse_web_result" if success else "browse_web_error",
+            source="browse_web",
+            temporary=True,
+        )
+    ]
+
+
+def _delete_non_core_screenshots(paths: list[Path], artifacts: list[ToolArtifact]) -> None:
+    keep = {Path(artifact.path) for artifact in artifacts}
+    for path in paths[:-1]:
+        if path in keep:
+            continue
+        path.unlink(missing_ok=True)
+
+
+def _cleanup_unused_temp_root(temp_root: Path | None, artifacts: list[ToolArtifact]) -> None:
+    if temp_root is None:
+        return
+    if any(Path(artifact.path).is_relative_to(temp_root) for artifact in artifacts):
+        return
+    shutil.rmtree(temp_root, ignore_errors=True)
 
 
 __all__ = ["create_browse_web_tool"]

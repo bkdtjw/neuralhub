@@ -25,11 +25,21 @@ class FileDiff(BaseModel):
     change_type: Literal["create", "modify", "delete"] = "modify"
 
 
+class ToolArtifact(BaseModel):
+    kind: Literal["image", "file"] = "file"
+    path: str
+    mime_type: str = ""
+    label: str = ""
+    source: str = ""
+    temporary: bool = False
+
+
 class ToolResult(BaseModel):
     tool_call_id: str = Field(default_factory=generate_id)
     output: str
     is_error: bool = False
     diffs: list[FileDiff] = Field(default_factory=list)
+    artifacts: list[ToolArtifact] = Field(default_factory=list)
 
 
 class Message(BaseModel):
@@ -50,6 +60,7 @@ class StreamChunk(BaseModel):
 __all__ = [
     "Role",
     "FileDiff",
+    "ToolArtifact",
     "ToolCall",
     "ToolResult",
     "Message",
