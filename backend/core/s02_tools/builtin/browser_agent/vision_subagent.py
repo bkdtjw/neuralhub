@@ -123,10 +123,45 @@ def _parse_observation(raw_text: str, tool_calls: object) -> VisionObservation:
         arguments = getattr(calls[0], "arguments", {})
         if not isinstance(arguments, dict):
             return _parse_failed(raw_text)
-        return VisionObservation.model_validate(arguments).model_copy(update={"raw_text": raw_text})
+        normalized = _normalize_observation_arguments(arguments)
+        observation = VisionObservation.model_validate(normalized)
+        return observation.model_copy(update={"raw_text": raw_text})
     except Exception as exc:  # noqa: BLE001
         detail = raw_text or json.dumps({"error": str(exc)}, ensure_ascii=False)
         return _parse_failed(detail)
+
+
+def _normalize_observation_arguments(arguments: dict[str, object]) -> dict[str, object]:
+    normalized = dict(arguments)
+    target = normalized.get("target_element")
+    if isinstance(target, str):
+        normalized["target_element"] = _json_object_or_none(target)
+    elements = normalized.get("visible_elements")
+    if isinstance(elements, str):
+        parsed = _json_list_or_none(elements)
+        if parsed is not None:
+            normalized["visible_elements"] = parsed
+    return normalized
+
+
+def _json_object_or_none(raw: str) -> dict[str, object] | None:
+    if not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _json_list_or_none(raw: str) -> list[object] | None:
+    if not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
 
 
 def _parse_failed(raw_text: str) -> VisionObservation:

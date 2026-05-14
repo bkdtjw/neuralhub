@@ -81,3 +81,28 @@ async def test_observe_returns_need_human_on_parse_failure() -> None:
     assert result.need_human is True
     assert result.confidence == 0.0
     assert result.raw_text == "plain text"
+
+
+async def test_observe_normalizes_json_string_target_element() -> None:
+    adapter = FakeAdapter(
+        LLMResponse(
+            content="raw",
+            tool_calls=[
+                ToolCall(
+                    name="report_observation",
+                    arguments={
+                        "page_summary": "Home page",
+                        "target_element": '{"description": "Learn more", "confidence": 0.9}',
+                    },
+                )
+            ],
+        )
+    )
+
+    result = await observe(
+        VisionRequest(screenshot=b"png", url="https://example.com"),
+        FakeRoleRouter(adapter),
+    )
+
+    assert result.target_element is not None
+    assert result.target_element.description == "Learn more"
