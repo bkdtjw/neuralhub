@@ -177,6 +177,19 @@ def register_builtin_tools(
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
 
     try:
+        from .jd_union import create_jd_union_search_tool
+
+        tools.append(
+            create_jd_union_search_tool(
+                app_key=os.environ.get("JD_UNION_APP_KEY", ""),
+                app_secret=os.environ.get("JD_UNION_APP_SECRET", ""),
+                access_token=os.environ.get("JD_UNION_ACCESS_TOKEN", ""),
+            )
+        )
+    except ImportError:
+        pass
+
+    try:
         from backend.adapters.role_router import RoleRouter
 
         from .browser_agent import create_browse_web_tool
