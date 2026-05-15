@@ -7,6 +7,14 @@ from backend.core.s02_tools.builtin.browser import SmartPage
 
 from .login_session_models import LoginAssistResult
 from .login_vision import LoginVisionHelper, TargetQuery
+from .login_page_probe import (
+    has_blocked,
+    has_login_success,
+    probe_phone_input,
+    sms_send_confirmed,
+    summarize,
+    vision_text,
+)
 
 logger = get_logger(component="browser_login_page")
 
@@ -57,6 +65,18 @@ async def request_sms_code(
             return typed
     if not phone_filled:
         return LoginAssistResult(status="phone_input_missing", detail="未找到手机号输入框")
+    phone_probe = await probe_phone_input(page)
+    if phone_probe.available:
+        _log_sms_step(
+            "verify_phone",
+            "filled" if phone_probe.filled else "empty",
+            "dom",
+            phone_probe.selector,
+        )
+        if not phone_probe.filled:
+            return LoginAssistResult(status="phone_input_unconfirmed", detail="手机号输入框未确认写入")
+    else:
+        _log_sms_step("verify_phone", "unavailable", "dom", detail=phone_probe.detail)
     button_clicked, button_selector = await try_click(page, SMS_BUTTON_SELECTORS)
     _log_sms_step(
         "click_send_sms",
@@ -91,7 +111,7 @@ async def request_sms_code(
             page,
             "判断短信验证码是否已经发送成功，或者是否出现滑块、安全验证、错误提示。",
         )
-        visual_text = _vision_text(observation)
+        visual_text = vision_text(observation)
         if has_blocked(visual_text):
             _log_sms_step("confirm_sms", "blocked", "vision", detail=summarize(visual_text))
             return LoginAssistResult(status="blocked", detail=summarize(visual_text))
@@ -153,32 +173,6 @@ async def body_text(page: SmartPage) -> str:
         return await page.locator("body").inner_text(timeout=5000)
     except Exception:  # noqa: BLE001
         return ""
-
-
-def has_login_success(text: str) -> bool:
-    return any(marker in text for marker in ("退出", "我的京东", "购物车", "PLUS会员"))
-
-
-def has_blocked(text: str) -> bool:
-    markers = ("安全验证", "访问受限", "风控", "当前页面异常", "扫码存在风险", "拖动滑块", "图形验证码", "验证身份")
-    return any(marker in text for marker in markers)
-
-
-def sms_send_confirmed(text: str) -> bool:
-    return any(marker in text for marker in ("验证码已发送", "发送成功", "重新获取", "重新发送", "秒后", "s后"))
-
-
-def summarize(text: str) -> str:
-    return text[:160].replace("\n", " | ")
-
-
-def _vision_text(observation: object) -> str:
-    page_summary = getattr(observation, "page_summary", "")
-    next_action = getattr(observation, "suggested_next_action", "")
-    reason = getattr(observation, "screenshot_reason", "")
-    target = getattr(observation, "target_element", None)
-    target_text = getattr(target, "description", "") if target is not None else ""
-    return " | ".join(str(part) for part in (page_summary, next_action, reason, target_text) if part)
 
 
 def _log_sms_step(step: str, status: str, method: str = "", selector: str = "", detail: str = "") -> None:

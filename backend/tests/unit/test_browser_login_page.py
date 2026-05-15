@@ -146,6 +146,7 @@ async def test_request_sms_code_emits_non_secret_step_audit(
     assert [event[0] for event in events] == [
         "open_sms_login",
         "fill_phone",
+        "verify_phone",
         "click_send_sms",
         "confirm_sms",
     ]
