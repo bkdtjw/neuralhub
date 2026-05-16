@@ -191,11 +191,19 @@ def register_builtin_tools(
 
     try:
         from .zhetaoke import create_zhetaoke_product_detail_tool
+        from .zhetaoke_brand import create_zhetaoke_brand_products_tool
         from .zhetaoke_search import create_zhetaoke_taobao_search_tool
 
         tools.append(create_zhetaoke_product_detail_tool(appkey=app_settings.zhetaoke_app_key))
         tools.append(
             create_zhetaoke_taobao_search_tool(
+                appkey=app_settings.zhetaoke_app_key,
+                sid=app_settings.zhetaoke_tb_sid,
+                pid=app_settings.zhetaoke_tb_pid,
+            )
+        )
+        tools.append(
+            create_zhetaoke_brand_products_tool(
                 appkey=app_settings.zhetaoke_app_key,
                 sid=app_settings.zhetaoke_tb_sid,
                 pid=app_settings.zhetaoke_tb_pid,
