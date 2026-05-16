@@ -77,9 +77,11 @@ class TaskExecutor:
                 for result in (message.tool_results or [])
             )
             tool_call_count = main_tool_call_count + sub_tool_call_count
+            success_count = _count_successful_tool_results(agent.messages)
             meta: dict[str, Any] = {
                 "status": status,
                 "tool_call_count": tool_call_count,
+                "success_count": success_count,
                 "started_at": started_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "finished_at": finished_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "duration": str(finished_at - started_at),
@@ -323,6 +325,15 @@ def _extract_sub_agent_tool_calls(output: str) -> int:
         except ValueError:
             return 0
     return 0
+
+
+def _count_successful_tool_results(messages: list[Any]) -> int:
+    return sum(
+        1
+        for message in messages
+        for result in (getattr(message, "tool_results", None) or [])
+        if not getattr(result, "is_error", False)
+    )
 
 
 __all__ = ["TaskExecutor"]

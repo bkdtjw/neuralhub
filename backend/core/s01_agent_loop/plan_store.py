@@ -18,12 +18,13 @@ _STEP_RE = re.compile(r"^### Step (\d+): (.+)$", re.MULTILINE)
 
 def generate_plan_name() -> str:
     """Return a lowercase, filename-safe adjective-verb-noun plan name."""
-
     parts = (secrets.choice(_ADJECTIVES), secrets.choice(_VERBS), secrets.choice(_NOUNS))
     return "-".join(parts)
 
 
 class PlanStore:
+    """Legacy markdown plan store; runner writes only final reports here."""
+
     def __init__(self, base_dir: str | None = None) -> None:
         self._base_dir = Path(base_dir or "data/plans")
         self._base_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +62,8 @@ class PlanStore:
 
 
 class TodoStore:
+    """Legacy todo JSON store; runner state now persists through checkpoints."""
+
     def __init__(self, base_dir: str | None = None) -> None:
         self._base_dir = Path(base_dir or "data/todos")
         self._base_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +102,6 @@ class TodoStore:
         _validate_plan_name(plan_name)
         return self._base_dir / f"{session_id}-plan-{plan_name}.json"
 
-
 def _format_plan(
     name: str,
     plan: ExecutionPlan,
@@ -111,7 +113,6 @@ def _format_plan(
         lines += [f"### Step {step.step_id}: {step.title}", step.description, f"Tools: {tools}", ""]
     lines.extend(["## Amendment Log", amendment_log])
     return "\n".join(lines).rstrip() + "\n"
-
 
 def _format_plan_header(name: str, plan: ExecutionPlan) -> list[str]:
     return [
@@ -133,7 +134,6 @@ def _format_plan_header(name: str, plan: ExecutionPlan) -> list[str]:
         "## Steps",
     ]
 
-
 def _section_text(content: str, heading: str) -> str:
     lines = content.splitlines()
     marker = f"## {heading}"
@@ -144,17 +144,14 @@ def _section_text(content: str, heading: str) -> str:
     end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
     return "\n".join(lines[start:end]).strip()
 
-
 def _meta_value(content: str, key: str) -> str:
     for line in _section_text(content, "Meta").splitlines():
         if line.startswith(f"- {key}:"):
             return line.split(":", 1)[1].strip()
     return ""
 
-
 def _parse_approach(raw: str) -> list[str]:
     return [line.removeprefix("- ").strip() for line in raw.splitlines() if line.strip()]
-
 
 def _parse_steps(raw: str) -> list[PlanStep]:
     steps: list[PlanStep] = []
@@ -164,7 +161,6 @@ def _parse_steps(raw: str) -> list[PlanStep]:
         block = raw[match.end() : end].strip("\n").splitlines()
         steps.append(_parse_step_block(int(match.group(1)), match.group(2).strip(), block))
     return steps
-
 
 def _parse_step_block(step_id: int, title: str, block: list[str]) -> PlanStep:
     tools: list[str] = []
@@ -177,7 +173,6 @@ def _parse_step_block(step_id: int, title: str, block: list[str]) -> PlanStep:
     text = "\n".join(description).strip()
     return PlanStep(step_id=step_id, title=title, description=text, tools_hint=tools)
 
-
 def _parse_tools(raw: str) -> list[str]:
     if not raw:
         return []
@@ -187,19 +182,15 @@ def _parse_tools(raw: str) -> list[str]:
     except json.JSONDecodeError:
         return [item.strip() for item in raw.split(",") if item.strip()]
 
-
 def _created_label() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
-
 
 def _validate_plan_name(name: str) -> None:
     if not _PLAN_PART_RE.fullmatch(name):
         raise ValueError(f"Invalid plan name: {name}")
 
-
 def _validate_file_part(value: str, field_name: str) -> None:
     if not value or not _FILE_PART_RE.fullmatch(value):
         raise ValueError(f"Invalid {field_name}: {value}")
-
 
 __all__ = ["PlanStore", "TodoStore", "generate_plan_name"]

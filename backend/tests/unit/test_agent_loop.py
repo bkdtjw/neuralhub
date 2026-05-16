@@ -39,6 +39,26 @@ def _tool_def(name: str) -> ToolDefinition:
     return ToolDefinition(name=name, description=name, category="shell", parameters=ToolParameterSchema())
 
 
+def test_agent_loop_metadata_defaults_and_explicit_values() -> None:
+    config = AgentConfig(model="test-model")
+    loop = AgentLoop(config, MockAdapter([]), ToolRegistry())
+    assert config.timeout_seconds == 300.0
+    assert loop.bridge is None
+    assert loop.agent_spec is None
+
+    bridge = object()
+    agent_spec = object()
+    configured = AgentLoop(
+        config,
+        MockAdapter([]),
+        ToolRegistry(),
+        bridge=bridge,
+        agent_spec=agent_spec,
+    )
+    assert configured.bridge is bridge
+    assert configured.agent_spec is agent_spec
+
+
 @pytest.mark.asyncio
 async def test_run_without_tool_calls_returns_assistant_message() -> None:
     loop = AgentLoop(
@@ -188,7 +208,7 @@ async def test_run_increments_agent_runs_metric(monkeypatch: pytest.MonkeyPatch)
     async def fake_incr(metric: str, value: int = 1) -> None:
         calls.append((metric, value))
 
-    monkeypatch.setattr("backend.core.s01_agent_loop.agent_loop.incr", fake_incr)
+    monkeypatch.setattr("backend.core.s01_agent_loop.agent_loop_run.incr", fake_incr)
     loop = AgentLoop(
         AgentConfig(model="test-model"),
         MockAdapter([LLMResponse(content="hello")]),

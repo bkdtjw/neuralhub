@@ -29,6 +29,7 @@ class AuthorizeResult(BaseModel):
 
     signed_calls: list[SignedToolCall] = Field(default_factory=list)
     rejected_results: list[ToolResult] = Field(default_factory=list)
+    pending_approval: list[ToolCall] = Field(default_factory=list)
 
 
 class SecurityGate:
@@ -48,6 +49,9 @@ class SecurityGate:
             result = AuthorizeResult()
             for tool_call in tool_calls:
                 reason = self._reject_reason(tool_call, len(result.signed_calls))
+                if reason.startswith("requires_approval:"):
+                    result.pending_approval.append(tool_call)
+                    continue
                 if reason:
                     logger.warning("tool_rejected", tool=tool_call.name, tool_call_id=tool_call.id, reason=reason)
                     result.rejected_results.append(self._rejected_result(tool_call, reason))
@@ -82,6 +86,24 @@ class SecurityGate:
         except Exception:
             return False
 
+    def force_sign(self, tool_calls: list[ToolCall]) -> list[SignedToolCall]:
+        try:
+            signed: list[SignedToolCall] = []
+            for tool_call in tool_calls:
+                self._sequence += 1
+                timestamp = time.time()
+                signed.append(
+                    SignedToolCall(
+                        tool_call=tool_call,
+                        sequence=self._sequence,
+                        timestamp=timestamp,
+                        signature=self._sign(tool_call, self._sequence, timestamp),
+                    )
+                )
+            return signed
+        except Exception as exc:
+            raise SecurityGateError("SECURITY_FORCE_SIGN_FAILED", str(exc)) from exc
+
     def reset(self) -> None:
         self._sequence = 0
         self._last_verified_sequence = 0
@@ -93,6 +115,9 @@ class SecurityGate:
             return f"tool not allowed: {tool_call.name}"
         if signed_count >= self._policy.max_calls_per_turn:
             return f"max calls per turn exceeded: {self._policy.max_calls_per_turn}"
+        tool = self._registry.get(tool_call.name)
+        if tool is not None and tool[0].permission.requires_approval:
+            return f"requires_approval:{tool_call.name}"
         return ""
 
     def _sign(self, tool_call: ToolCall, sequence: int, timestamp: float) -> str:

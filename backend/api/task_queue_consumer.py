@@ -171,7 +171,7 @@ async def _build_sub_agent_loop(
         if payload.retry_count > 0:
             existing = await store.get_messages(session_id)
             if existing:
-                loop._messages = _restored_messages(loop, existing)  # noqa: SLF001
+                loop.message_history.restore(_restored_messages(loop, existing))
                 logger.info(
                     "sub_agent_task_checkpoint_restored",
                     task_id=payload.task_id,

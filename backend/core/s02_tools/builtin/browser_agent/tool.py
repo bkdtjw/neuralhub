@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from backend.adapters.role_router import RoleRouter
-from backend.common.logging import get_logger
 from backend.common.types import (
     ToolArtifact,
     ToolDefinition,
@@ -18,16 +17,9 @@ from backend.storage.asset_store import AssetStore
 
 from .main_agent_loop import run_browser_agent
 from .models import BrowserAgentConfig
-from .site_guides import resolve_initial_url, resolve_site_guide
-
-logger = get_logger(component="browse_web_tool")
 
 
-def create_browse_web_tool(
-    role_router: RoleRouter,
-    login_manager: Any | None = None,
-    chat_id: str = "",
-) -> tuple[ToolDefinition, ToolExecuteFn]:
+def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="browse_web",
         description=(
@@ -63,45 +55,24 @@ def create_browse_web_tool(
             max_steps = min(int(args.get("max_steps", 15) or 15), 30)
             policy = _screenshot_policy(args)
             temp_root = _new_temp_root() if policy == "core" else None
-            raw_domain = str(args.get("domain", "") or "")
-            guide = resolve_site_guide(task, raw_domain)
             result = await run_browser_agent(
                 BrowserAgentConfig(
                     task=task,
-                    domain=raw_domain or (guide.domain if guide is not None else ""),
-                    initial_url=resolve_initial_url(task, guide),
-                    site_guide=guide.instructions if guide is not None else "",
+                    domain=str(args.get("domain", "") or ""),
                     max_steps=max_steps,
                     vision_subagent_provider_id=str(args.get("vision_provider_id", "") or ""),
                     main_agent_provider_id=str(args.get("main_agent_provider_id", "") or ""),
                 ),
                 role_router,
                 AssetStore(root=temp_root) if temp_root is not None else None,
-                (
-                    login_manager.for_chat(chat_id)
-                    if login_manager is not None and chat_id
-                    else None
-                ),
             )
-            nonfatal = result.reason in {"need_human", "provider_rejected"}
-            output = result.content if result.success or nonfatal else f"Browse failed: {result.reason}"
-            artifacts = _core_screenshot_artifacts(result.screenshots, result.success, result.reason)
+            output = result.content if result.success else f"Browse failed: {result.reason}"
+            artifacts = _core_screenshot_artifacts(result.screenshots, result.success)
             _delete_non_core_screenshots(result.screenshots, artifacts)
             _cleanup_unused_temp_root(temp_root, artifacts)
-            logger.info(
-                "browse_web_result",
-                success=result.success,
-                reason=result.reason,
-                steps=result.steps_taken,
-                screenshot_count=len(result.screenshots),
-                artifact_count=len(artifacts),
-                domain=raw_domain or (guide.domain if guide is not None else ""),
-                initial_url=resolve_initial_url(task, guide),
-                site_guide=guide.site_id if guide is not None else "",
-            )
             return ToolResult(
                 output=output,
-                is_error=not result.success and not nonfatal,
+                is_error=not result.success,
                 diffs=[],
                 artifacts=artifacts,
             )
@@ -120,11 +91,7 @@ def _new_temp_root() -> Path:
     return Path(tempfile.mkdtemp(prefix="browse_web_"))
 
 
-def _core_screenshot_artifacts(
-    paths: list[Path],
-    success: bool,
-    reason: str = "",
-) -> list[ToolArtifact]:
+def _core_screenshot_artifacts(paths: list[Path], success: bool) -> list[ToolArtifact]:
     if not paths:
         return []
     path = paths[-1]
@@ -133,19 +100,11 @@ def _core_screenshot_artifacts(
             kind="image",
             path=str(path),
             mime_type="image/png",
-            label=_artifact_label(success, reason),
+            label="browse_web_result" if success else "browse_web_error",
             source="browse_web",
             temporary=True,
         )
     ]
-
-
-def _artifact_label(success: bool, reason: str) -> str:
-    if reason == "need_human":
-        return "browse_web_human_required"
-    if reason == "provider_rejected":
-        return "browse_web_provider_rejected"
-    return "browse_web_result" if success else "browse_web_error"
 
 
 def _delete_non_core_screenshots(paths: list[Path], artifacts: list[ToolArtifact]) -> None:

@@ -73,6 +73,9 @@ class ToolFailureRecoveryTracker:
         self._consecutive_failures = 0
         self._states.pop(_signature(call), None)
 
+    def record_success(self, call: ToolCall) -> None:
+        self._record_success(call)
+
     def _record_failure(self, call: ToolCall, result: ToolResult) -> ToolFailureState:
         self._consecutive_failures += 1
         signature = _signature(call)

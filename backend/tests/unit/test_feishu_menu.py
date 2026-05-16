@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from backend.api.routes import feishu
 from backend.api.routes.feishu_handler import FeishuMessageHandler
 from backend.common.types import Message
+from backend.core.s01_agent_loop import PlanControlStore
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
 
 
@@ -75,6 +76,9 @@ async def test_bot_menu_event_dispatched(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.mark.asyncio
 async def test_card_action_event_payload_dispatched() -> None:
+    handler = MagicMock()
+    handler.approve_plan.return_value = True
+    feishu.set_handler(handler)
     app = FastAPI()
     app.include_router(feishu.router)
     payload = {
@@ -89,6 +93,7 @@ async def test_card_action_event_payload_dispatched() -> None:
                     "action_type": "plan_approve",
                     "plan_name": "p1",
                     "chat_id": "oc_1",
+                    "owner_id": "ou_test",
                 },
             },
         },
@@ -98,7 +103,8 @@ async def test_card_action_event_payload_dispatched() -> None:
         base_url="http://test",
     ) as client:
         response = await client.post("/api/feishu/event", json=payload)
-    assert response.json()["toast"]["content"] == "计划 p1 已确认"
+    assert response.json()["toast"]["content"] == "计划 p1 已批准，开始执行"
+    feishu.set_handler(None)
 
 
 @pytest.mark.asyncio
@@ -118,6 +124,26 @@ async def test_menu_mode_switches_and_confirms() -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_mode_stops_active_plan_for_latest_chat(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PLAN_CONTROL_DIR", str(tmp_path / "controls"))
+    client = MenuClient()
+    handler = _handler(client)
+    runner = MagicMock()
+    handler._user_chats["ou_test"] = "oc_known"
+    handler._user_modes["ou_test"] = "plan_execute"
+    handler._plan_runners["oc_known"] = runner
+
+    await handler.handle_menu_event("direct_mode", "ou_test")
+
+    runner.cancel.assert_called_once_with()
+    assert "ou_test" not in handler._user_modes
+    assert PlanControlStore().read("feishu-oc_known").action == "stop"
+    assert "已停止当前计划" in json.loads(client.sent[-1][1])["text"]
+
+
+@pytest.mark.asyncio
 async def test_menu_confirmation_falls_back_to_open_id() -> None:
     client = MenuClient()
     handler = _handler(client)
@@ -132,7 +158,7 @@ async def test_plan_mode_routes_plain_message_to_plan_handler() -> None:
     handler._user_modes["ou_test"] = "plan_execute"
     handler._handle_plan_message = AsyncMock()
     await handler.handle_message(_event("重构 s07"))
-    handler._handle_plan_message.assert_awaited_once_with("oc_1", "重构 s07")
+    handler._handle_plan_message.assert_awaited_once_with("oc_1", "重构 s07", owner_id="ou_test")
 
 
 @pytest.mark.asyncio
@@ -145,6 +171,7 @@ async def test_direct_mode_routes_plain_message_to_normal_loop() -> None:
     handler._persist_turn = AsyncMock()
     handler._try_reply_card = AsyncMock(return_value=False)
     await handler.handle_message(_event("普通消息"))
+    handler._get_or_create_loop.assert_awaited_once_with("oc_1", "ou_test")
     loop.run.assert_awaited_once_with("普通消息")
 
 
@@ -160,7 +187,7 @@ async def test_slash_plan_works_and_plan_mode_persists() -> None:
     handler = _handler()
     handler._handle_plan_message = AsyncMock()
     await handler.handle_message(_event("/plan 重构 s07"))
-    handler._handle_plan_message.assert_awaited_once_with("oc_1", "重构 s07", "")
+    handler._handle_plan_message.assert_awaited_once_with("oc_1", "重构 s07", "", "ou_test")
     handler._user_modes["ou_test"] = "plan_execute"
     runner = Runner()
     handler._plan_runners["oc_1"] = runner

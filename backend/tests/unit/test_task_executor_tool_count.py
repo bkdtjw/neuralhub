@@ -28,12 +28,18 @@ async def test_execute_counts_sub_agent_tool_calls_in_meta() -> None:
             Message(
                 role="assistant",
                 content="",
-                tool_calls=[ToolCall(name="spawn_agent", arguments={"tasks": []})],
+                tool_calls=[
+                    ToolCall(name="spawn_agent", arguments={"tasks": []}),
+                    ToolCall(name="failing_tool", arguments={}),
+                ],
             ),
             Message(
                 role="tool",
                 content="",
-                tool_results=[ToolResult(output="ok\n[meta] sub_agent_tool_calls=4")],
+                tool_results=[
+                    ToolResult(output="ok\n[meta] sub_agent_tool_calls=4"),
+                    ToolResult(output="failed", is_error=True),
+                ],
             ),
         ],
         run=AsyncMock(return_value=Message(role="assistant", content="final report")),
@@ -54,4 +60,5 @@ async def test_execute_counts_sub_agent_tool_calls_in_meta() -> None:
         result = await executor.execute(_task())
 
     assert result == "final report"
-    assert mock_save.await_args.args[2]["tool_call_count"] == 5
+    assert mock_save.await_args.args[2]["tool_call_count"] == 6
+    assert mock_save.await_args.args[2]["success_count"] == 1

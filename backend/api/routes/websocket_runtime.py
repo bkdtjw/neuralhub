@@ -59,7 +59,7 @@ async def create_loop(payload: CreateLoopInput) -> AgentLoop:
         loop = await _build_loop(payload)
         messages = await _load_messages(payload, loop._config.system_prompt)
         if messages:
-            loop._messages = messages  # noqa: SLF001
+            loop.message_history.restore(messages)
 
         async def on_event(event: AgentEvent) -> None:
             await payload.event_sender(event_to_ws_message(event))
@@ -113,8 +113,9 @@ async def _build_loop(payload: CreateLoopInput) -> AgentLoop:
         adapter=components.adapter,
         tool_registry=components.registry,
         checkpoint_fn=checkpoint_fn,
+        bridge=components.bridge,
+        owner_id=payload.session_id,
     )
-    setattr(loop, "_bridge", components.bridge)  # noqa: B010, SLF001
     return loop
 
 

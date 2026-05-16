@@ -148,10 +148,16 @@ async def test_handle_command_switches_provider_and_clears_provider_metadata() -
         manager=FakeProviderManager(_providers()),
         mcp_manager=await _make_empty_mcp_manager(Path(workspace)),
     )
-    session.loop._messages = [  # noqa: SLF001
-        Message(role="system", content="system"),
-        Message(role="assistant", content="answer", provider_metadata={"reasoning_content": "step"}),
-    ]
+    session.loop.message_history.restore(
+        [
+            Message(role="system", content="system"),
+            Message(
+                role="assistant",
+                content="answer",
+                provider_metadata={"reasoning_content": "step"},
+            ),
+        ]
+    )
     result = await handle_command(session, CliCommand(name="/provider", argument="Alt Provider"), CliPrinter())
     assert result.session.state.provider_id == "provider-2"
     assert result.session.state.model == "alt-model"

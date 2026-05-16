@@ -100,7 +100,7 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
         )
         await MCPToolBridge(mcp_server_manager, registry).sync_all()
         loop = AgentLoop(config=AgentConfig(model=request.model, system_prompt=""), adapter=adapter, tool_registry=registry)
-        loop._messages = internal[:user_idx]  # noqa: SLF001
+        loop.message_history.restore(internal[:user_idx])
         user_message = internal[user_idx].content
         if not request.stream:
             return _internal_message_to_openai(await loop.run(user_message), request.model)

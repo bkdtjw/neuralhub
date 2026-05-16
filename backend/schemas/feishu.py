@@ -48,9 +48,6 @@ class FeishuCardAction(BaseModel):
 
     value: FeishuCardActionValue = Field(default_factory=FeishuCardActionValue)
     tag: str = "button"
-    form_value: dict[str, Any] = Field(default_factory=dict)
-    input_values: dict[str, Any] = Field(default_factory=dict)
-    model_config = {"extra": "allow"}
 
 
 class FeishuCardActionPayload(BaseModel):

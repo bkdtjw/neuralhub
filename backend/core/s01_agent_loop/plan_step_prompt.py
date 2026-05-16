@@ -19,7 +19,7 @@ STEP_EXECUTION_SYSTEM_PROMPT = """
 收敛要求：
 - 当前步骤应尽量在 5 次工具调用内完成。
 - 不要扩大搜索范围；已有信息足够时立即输出结论。
-- 收到 [系统提醒]、[系统警告] 或 [系统强制] 后，必须优先结束当前步骤。
+- 收到 [系统提醒]、[系统警告] 或 [系统强制] 后，必须优先结束当前步骤。{completed_context_block}
 
 前一步摘要：
 {previous_summary}
@@ -52,15 +52,22 @@ def build_step_messages(
     step_index: int,
     total_steps: int,
     previous_summary: str = "",
+    completed_context: str = "",
     workspace: str = "",
 ) -> tuple[str, str]:
     summary = previous_summary.strip() or "无"
+    completed_context_block = (
+        f"\n\n已完成步骤上下文：\n{completed_context.strip()}"
+        if completed_context.strip()
+        else ""
+    )
     system_prompt = STEP_EXECUTION_SYSTEM_PROMPT.format(
         step_index=step_index,
         total_steps=total_steps,
         title=step.title,
         description=step.description,
         workspace=workspace or "当前项目工作区",
+        completed_context_block=completed_context_block,
         previous_summary=summary,
     )
     user_message = "\n".join(

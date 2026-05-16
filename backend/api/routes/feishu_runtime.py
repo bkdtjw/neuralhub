@@ -11,7 +11,6 @@ from backend.config import get_redis
 from backend.config.settings import settings as app_settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
-from backend.core.s02_tools.builtin.browser_agent.login_session import browser_login_manager
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
@@ -33,9 +32,6 @@ BROWSE_WEB_HINT = """
 
 调用方式：browse_web(task="自然语言描述任务", domain="可选，用于加载登录态")。
 工具返回文字结果。任务可能耗时 30 秒到几分钟，期间无中间反馈。
-注意：storage_state/cookie 文件存在不等于已经登录。涉及登录网站时，必须以页面上的账号、
-退出入口、个人中心、购物车等真实账号迹象为准；如果工具返回需要扫码/验证码/风控处理，
-不要再次调用 browse_web 重试，直接提示用户处理返回的截图后再发原任务。
 """
 
 
@@ -48,6 +44,7 @@ async def build_agent_loop(
     agent_runtime: AgentRuntime | None = None,
     spec_registry: SpecRegistry | None = None,
     task_queue: TaskQueue | None = None,
+    owner_id: str = "",
 ) -> AgentLoop:
     resolved_model = model or app_settings.default_model
     resolved_system_prompt = system_prompt or build_system_prompt(os.getcwd())
@@ -70,8 +67,6 @@ async def build_agent_loop(
         agent_runtime=agent_runtime,
         spec_registry=spec_registry,
         task_queue=task_queue,
-        browser_login_manager=browser_login_manager,
-        browser_login_chat_id=session_id,
     )
     bridge = MCPToolBridge(MCPServerManager(), registry)
     await bridge.sync_all()
@@ -86,6 +81,7 @@ async def build_agent_loop(
         ),
         adapter=adapter,
         tool_registry=registry,
+        owner_id=owner_id or session_id,
     )
 
 

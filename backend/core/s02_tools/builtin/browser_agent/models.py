@@ -68,8 +68,6 @@ class BrowserAgentConfig(BaseModel):
     task: str
     user_id: str = "default"
     domain: str = ""
-    initial_url: str = ""
-    site_guide: str = ""
     max_steps: int = 15
     timeout_seconds: float = 300.0
     main_agent_provider_id: str = ""

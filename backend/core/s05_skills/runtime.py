@@ -82,14 +82,15 @@ class AgentRuntime:
                     session_id=session_id,
                     tools=sorted(tool.name for tool in registry.list_definitions()),
                     max_iterations=spec.max_iterations,
+                    timeout_seconds=spec.timeout_seconds,
                 ),
                 adapter=adapter,
                 tool_registry=registry,
                 checkpoint_fn=checkpoint_fn,
+                bridge=bridge,
+                agent_spec=spec,
+                owner_id=session_id,
             )
-            setattr(loop, "_bridge", bridge)  # noqa: B010, SLF001
-            setattr(loop, "_agent_spec", spec)  # noqa: B010, SLF001
-            setattr(loop, "_timeout_seconds", spec.timeout_seconds)  # noqa: B010, SLF001
             return loop
         except AgentError:
             raise
@@ -184,6 +185,7 @@ class AgentRuntime:
         renderer: PlanRenderer | None = None,
         is_sub_agent: bool = False,
         checkpoint_fn: CheckpointFn | None = None,
+        owner_id: str = "unknown",
     ) -> AgentLoop | PlanExecuteRunner:
         return await create_runtime_runner(
             self,
@@ -199,6 +201,7 @@ class AgentRuntime:
             renderer,
             is_sub_agent,
             checkpoint_fn,
+            owner_id,
             MCPToolBridge,
         )
 

@@ -99,9 +99,10 @@ async def feishu_event(request: Request) -> dict[str, Any]:
             payload = FeishuCardActionPayload.model_validate(card_action_data)
             result = await dispatcher.dispatch(payload)
             value = payload.action.value
+            action_type = value.action_type or str(getattr(value, "action", "") or "")
             logger.info(
                 "feishu_card_action_fallback_dispatched",
-                action_type=value.action_type,
+                action_type=action_type,
                 plan_name=str(getattr(value, "plan_name", "") or ""),
                 event_type=event_type,
                 open_id=payload.open_id,

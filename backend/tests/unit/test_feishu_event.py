@@ -15,6 +15,7 @@ import backend.config.redis_client as redis_client
 from backend.common.types import Message, ProviderConfig, ProviderType, Session, SessionConfig
 from backend.common.errors import AgentError
 from backend.config.settings import settings
+from backend.core.s01_agent_loop import MessageHistory
 from backend.core.s05_skills import AgentCategory, AgentSpec, SpecRegistry
 from .redis_test_support import use_fake_redis
 from backend.api.routes.feishu_handler import FeishuMessageHandler, _extract_text
@@ -57,6 +58,13 @@ def _mock_handler() -> tuple[FeishuMessageHandler, AsyncMock, AsyncMock]:
     return handler, client, pm
 
 
+def _mock_loop(**config: Any) -> AsyncMock:
+    loop = AsyncMock()
+    loop._config = MagicMock(**({"provider": "provider-1"} | config))
+    loop.message_history = MessageHistory()
+    return loop
+
+
 @pytest.fixture(autouse=True)
 async def _init_fake_redis(monkeypatch: pytest.MonkeyPatch) -> None:
     await use_fake_redis(monkeypatch)
@@ -85,11 +93,10 @@ class TestMessageHandling:
     @pytest.mark.asyncio
     async def test_normal_message_replies(self) -> None:
         handler, client, pm = _mock_handler()
-        mock_loop = AsyncMock()
+        mock_loop = _mock_loop()
         mock_result = MagicMock()
         mock_result.content = "Agent reply"
         mock_loop.run = AsyncMock(return_value=mock_result)
-        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event(text="hello")
@@ -104,11 +111,10 @@ class TestMessageHandling:
     @pytest.mark.asyncio
     async def test_event_dedup(self) -> None:
         handler, client, pm = _mock_handler()
-        mock_loop = AsyncMock()
+        mock_loop = _mock_loop()
         mock_result = MagicMock()
         mock_result.content = "reply"
         mock_loop.run = AsyncMock(return_value=mock_result)
-        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event(event_id="evt_dup")
@@ -169,8 +175,7 @@ class TestMessageHandling:
     @pytest.mark.asyncio
     async def test_bot_message_ignored(self) -> None:
         handler, client, pm = _mock_handler()
-        mock_loop = AsyncMock()
-        mock_loop._config = MagicMock(provider="provider-1")
+        mock_loop = _mock_loop()
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event(sender_type="bot")
@@ -194,12 +199,10 @@ class TestMessageHandling:
     @pytest.mark.asyncio
     async def test_session_isolation_per_chat(self) -> None:
         handler, client, pm = _mock_handler()
-        loop_a = AsyncMock()
+        loop_a = _mock_loop()
         loop_a.run = AsyncMock(return_value=MagicMock(content="reply A"))
-        loop_a._config = MagicMock(provider="provider-1")
-        loop_b = AsyncMock()
+        loop_b = _mock_loop()
         loop_b.run = AsyncMock(return_value=MagicMock(content="reply B"))
-        loop_b._config = MagicMock(provider="provider-1")
         handler._sessions["oc_a"] = loop_a
         handler._sessions["oc_b"] = loop_b
 
@@ -216,9 +219,8 @@ class TestMessageHandling:
     @pytest.mark.asyncio
     async def test_error_sends_error_reply(self) -> None:
         handler, client, pm = _mock_handler()
-        mock_loop = AsyncMock()
+        mock_loop = _mock_loop()
         mock_loop.run = AsyncMock(side_effect=RuntimeError("boom"))
-        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         event = _make_event()
@@ -232,9 +234,8 @@ class TestMessageHandling:
     @pytest.mark.asyncio
     async def test_empty_message_uses_fallback_text(self) -> None:
         handler, client, _ = _mock_handler()
-        mock_loop = AsyncMock()
+        mock_loop = _mock_loop()
         mock_loop.run = AsyncMock(return_value=Message(role="assistant", content=""))
-        mock_loop._config = MagicMock(provider="provider-1")
         handler._sessions["oc_abc"] = mock_loop
 
         await handler.handle_message(_make_event())
@@ -263,8 +264,7 @@ class TestMessageHandling:
                 created_at=datetime.utcnow(),
             )
         )
-        loop = AsyncMock()
-        loop._config = MagicMock(provider="provider-1", model="glm-5.1", system_prompt="")
+        loop = _mock_loop(model="glm-5.1", system_prompt="")
         with patch("backend.api.routes.feishu_handler.build_agent_loop", AsyncMock(return_value=loop)) as build_loop:
             await handler._get_or_create_loop("oc_abc")
         assert build_loop.await_args.kwargs["model"] == "glm-5.1"

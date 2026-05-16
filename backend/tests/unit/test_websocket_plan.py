@@ -30,16 +30,39 @@ class MemoryStore:
 class FakeRunner:
     def __init__(self) -> None:
         self.cancelled = False
+        self.approved = False
+        self.rejected_reason = ""
         self.plan_name = "test-plan"
 
     async def run(self, message: str) -> Message:
         return self.build_exit_summary()
 
+    async def resume_run(self) -> Message:
+        return self.build_exit_summary()
+
     def cancel(self) -> None:
         self.cancelled = True
 
+    def approve(self) -> None:
+        self.approved = True
+
+    def reject(self, reason: str = "") -> None:
+        self.rejected_reason = reason
+
     def build_exit_summary(self) -> Message:
         return Message(role="assistant", content=f"Plan: {self.plan_name}\nStatus: completed")
+
+
+class RecordingBridge:
+    def __init__(self) -> None:
+        self.sync_calls = 0
+
+    def needs_sync(self) -> bool:
+        return True
+
+    async def sync_if_needed(self) -> int:
+        self.sync_calls += 1
+        return 1
 
 
 @pytest.mark.asyncio
@@ -58,7 +81,8 @@ async def test_ws_plan_renderer_sends_events() -> None:
     await renderer.on_step_start(1, "step1", 3)
     await renderer.on_step_done(1, "step1", 3.2, "summary")
 
-    assert any(message["type"] == "plan_created" for message in sent)
+    created = next(message for message in sent if message["type"] == "plan_created")
+    assert created["awaiting_approval"] is True
     assert any(
         message["type"] == "plan_step_update" and message["status"] == "running" for message in sent
     )
@@ -93,7 +117,7 @@ async def test_disconnect_cleans_plan_runner() -> None:
     await manager.disconnect("session-1")
 
     assert "session-1" not in manager._plan_runners  # noqa: SLF001
-    assert runner.cancelled is True
+    assert runner.cancelled is False
 
 
 def test_plan_cancel_message_cancels_runner(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,9 +153,44 @@ def test_plan_cancel_message_cancels_runner(monkeypatch: pytest.MonkeyPatch) -> 
     assert runner.cancelled is True
 
 
+def test_plan_approve_and_reject_messages_call_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = FakeRunner()
+    manager = ConnectionManager()
+
+    async def fake_create_plan_runner(*_args: object) -> FakeRunner:
+        return runner
+
+    async def fake_run_plan_loop(*_args: object) -> None:
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            return
+
+    _patch_websocket_runtime(monkeypatch, manager, fake_create_plan_runner, fake_run_plan_loop)
+    app = FastAPI()
+    app.include_router(websocket_route.router)
+
+    with TestClient(app) as client, client.websocket_connect("/ws/session-1") as websocket:
+        websocket.send_json(
+            {
+                "type": "run",
+                "mode": "plan_execute",
+                "model": "test",
+                "provider_id": "fake",
+                "message": "go",
+            }
+        )
+        websocket.send_json({"type": "plan_approve"})
+        websocket.send_json({"type": "plan_reject", "reason": "no"})
+
+    assert runner.approved is True
+    assert runner.rejected_reason == "no"
+
+
 def test_direct_mode_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = ConnectionManager()
     created: dict[str, bool] = {}
+    bridge = RecordingBridge()
 
     async def fake_create_loop(_payload: object) -> AgentLoop:
         created["loop"] = True
@@ -139,6 +198,7 @@ def test_direct_mode_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
             config=AgentConfig(model="test"),
             adapter=MockAdapter(["done"]),
             tool_registry=ToolRegistry(),
+            bridge=bridge,
         )
 
     async def fake_run_loop(payload: Any) -> None:
@@ -161,6 +221,7 @@ def test_direct_mode_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
         assert websocket.receive_json() == {"type": "done", "message": None}
 
     assert created["loop"] is True
+    assert bridge.sync_calls == 1
     assert manager._plan_runners == {}  # noqa: SLF001
 
 

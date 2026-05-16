@@ -171,10 +171,12 @@ async def rebuild_session(session: CliSession, update: SessionUpdate) -> CliSess
             event_handler=session.event_handler,
         )
         if update.preserve_history and session.loop.messages:
-            rebuilt.loop._messages = _clone_messages(  # noqa: SLF001
-                session.loop.messages,
-                rebuilt.loop._config.system_prompt,  # noqa: SLF001
-                update.clear_provider_metadata,
+            rebuilt.loop.message_history.restore(
+                _clone_messages(
+                    session.loop.messages,
+                    rebuilt.loop._config.system_prompt,  # noqa: SLF001
+                    update.clear_provider_metadata,
+                )
             )
         return rebuilt
     except (CliError, LLMError):

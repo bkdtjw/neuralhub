@@ -30,6 +30,7 @@ def build_card_meta(
         "started_at": meta["started_at"],
         "finished_at": meta["finished_at"],
         "tool_call_count": str(meta["tool_call_count"]),
+        "success_count": str(meta.get("success_count", 0)),
         "trigger_type": "定时任务",
         "execution_id": f"{task.id}-{end_time.strftime('%Y%m%d-%H%M%S')}",
         "report_url": build_report_url(report_path),
@@ -64,6 +65,7 @@ async def save_report(
         f"| 状态 | {status_text} |\n"
         f"| 耗时 | {meta.get('duration', '')} |\n"
         f"| 工具调用次数 | {meta.get('tool_call_count', '')} |\n"
+        f"| 工具成功次数 | {meta.get('success_count', 0)} |\n"
         f"| 触发方式 | 定时任务 |\n"
         f"| 执行 ID | {execution_id} |\n\n"
         f"---\n\n"

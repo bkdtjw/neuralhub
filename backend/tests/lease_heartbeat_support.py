@@ -5,6 +5,7 @@ from typing import Any
 from time import time
 
 from backend.common.types import Message
+from backend.core.s01_agent_loop import MessageHistory
 from backend.core.s05_skills import AgentCategory, AgentSpec, SpecRegistry
 from backend.core.task_queue import TaskQueue
 from backend.core.task_queue_types import TaskPayload, TaskStatus
@@ -33,7 +34,11 @@ async def status(queue: TaskQueue, task_id: str) -> TaskPayload:
 class Loop:
     def __init__(self) -> None:
         self._config = SimpleNamespace(model="m", provider="p", system_prompt="s")
-        self._messages: list[Message] = []
+        self.message_history = MessageHistory()
+
+    @property
+    def messages(self) -> list[Message]:
+        return self.message_history.messages
 
 
 class Runtime:

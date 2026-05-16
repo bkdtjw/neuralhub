@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .plan_execution_support import SUMMARY_DISPLAY_LIMIT
-from .plan_models import ExecutionPlan, PlanStatus, TodoState
+from .plan_models import ExecutionPlan, PlanPhase, TodoState
 
 
 def execution_finish_status(todo_state: TodoState | None) -> str:
@@ -13,12 +13,12 @@ def execution_finish_status(todo_state: TodoState | None) -> str:
     return "partial_failed" if failed_count else "completed"
 
 
-def plan_status_for_finish(status: str) -> PlanStatus:
+def plan_status_for_finish(status: str) -> PlanPhase:
     if status == "cancelled":
-        return PlanStatus.CANCELLED
+        return PlanPhase.CANCELLED
     if status == "partial_failed":
-        return PlanStatus.PARTIAL_FAILED
-    return PlanStatus.COMPLETED
+        return PlanPhase.PARTIAL_FAILED
+    return PlanPhase.COMPLETED
 
 
 @dataclass(frozen=True)

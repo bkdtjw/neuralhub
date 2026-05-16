@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from backend.common.errors import LLMError
 from backend.common.types import Message, ProviderConfig, Session
 from backend.common.logging import bound_log_context, get_log_context, new_trace_id
 
@@ -58,28 +57,10 @@ def resolve_reply_text(result: Any) -> str:
     return str(result)
 
 
-def resolve_error_reply(exc: Exception) -> str:
-    if is_provider_rejection_error(exc):
-        return (
-            "模型服务拒绝继续处理当前内容，常见于新闻政治图片、敏感网页或供应商风控。"
-            "浏览器和飞书通道本身没有崩溃。"
-        )
-    return "处理消息时出错，请稍后重试。详情请查看服务端日志。"
-
-
-def is_provider_rejection_error(exc: Exception) -> bool:
-    lowered = str(exc).lower()
-    return isinstance(exc, LLMError) and any(marker in lowered for marker in RISK_REJECTION_MARKERS)
-
-
 __all__ = [
     "build_feishu_log_context",
     "extract_text",
     "parse_slash_command",
     "resolve_reply_text",
-    "resolve_error_reply",
     "resolve_session_model",
-    "is_provider_rejection_error",
 ]
-RISK_REJECTION_MARKERS = ("high risk", "不安全", "敏感内容", "sensitive")
-

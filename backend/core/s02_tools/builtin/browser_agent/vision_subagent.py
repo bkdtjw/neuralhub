@@ -24,10 +24,6 @@ SYSTEM_PROMPT_VISION = """你是浏览器视觉感知 subagent。你只看一张
   - confidence: 0.0 - 1.0
   - need_human: 看不懂或风险高 → true
 
-如果页面包含登录、扫码二维码、验证码、短信/邮箱验证码、安全验证、风控、
-访问受限等必须由用户处理的关卡，设置 need_human=true，
-screenshot_importance>=0.8，并在 screenshot_reason 说明原因。
-
 bbox 坐标系：左上原点，单位 px，对应 viewport={viewport_w}x{viewport_h}
 （device_scale_factor=1，截图坐标 = 点击坐标）。
 """

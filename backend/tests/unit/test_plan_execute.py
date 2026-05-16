@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import re
 
 import pytest
@@ -9,14 +8,14 @@ from backend.core.s01_agent_loop import (
     ExecutionPlan,
     PlanExecuteRunner,
     PlanParseError,
-    PlanStatus,
+    PlanPhase,
     PlanStep,
     PlanStore,
     TodoStore,
     generate_plan_name,
 )
 from backend.core.s02_tools import ToolRegistry
-from backend.tests.unit.plan_execute_test_support import VALID_PLAN_JSON, MockAdapter
+from backend.tests.unit.plan_execute_test_support import VALID_PLAN_JSON, MockAdapter, run_with_approval
 
 
 def _plan() -> ExecutionPlan:
@@ -38,6 +37,26 @@ def _runner(tmp_path: object, adapter: MockAdapter | None = None) -> PlanExecute
         todo_store=TodoStore(str(root / "todos")),
         session_id="test-session",
     )
+
+
+def test_plan_runner_metadata_defaults_and_explicit_values(tmp_path) -> None:
+    runner = _runner(tmp_path)
+    assert runner.bridge is None
+    assert runner.agent_spec is None
+
+    bridge = object()
+    agent_spec = object()
+    configured = PlanExecuteRunner(
+        adapter=MockAdapter(),
+        tool_registry=ToolRegistry(),
+        plan_store=PlanStore(str(tmp_path / "plans")),
+        todo_store=TodoStore(str(tmp_path / "todos")),
+        session_id="test-session",
+        bridge=bridge,
+        agent_spec=agent_spec,
+    )
+    assert configured.bridge is bridge
+    assert configured.agent_spec is agent_spec
 
 
 def test_execution_plan_roundtrip() -> None:
@@ -107,19 +126,21 @@ def test_todo_store_create_and_update(tmp_path) -> None:
     assert restored.status == "completed"
 
 
-def test_runner_full_lifecycle(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_full_lifecycle(tmp_path) -> None:
     runner = _runner(tmp_path)
-    assert runner.status == PlanStatus.IDLE
-    result = asyncio.run(runner.run("refactor s07"))
+    assert runner.status == PlanPhase.IDLE
+    result = await run_with_approval(runner, "refactor s07")
     assert result.role == "assistant"
-    assert runner.status in (PlanStatus.COMPLETED, PlanStatus.CANCELLED)
+    assert runner.status in (PlanPhase.COMPLETED, PlanPhase.CANCELLED)
     assert runner.plan_name
     assert (tmp_path / "plans" / f"{runner.plan_name}.md").exists()
     assert runner._todo_state is not None
     assert all(step.status == "done" for step in runner._todo_state.steps)
 
 
-def test_runner_cancel(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_cancel(tmp_path) -> None:
     runner = _runner(tmp_path)
     original_execute = runner._execute_step
 
@@ -129,22 +150,23 @@ def test_runner_cancel(tmp_path) -> None:
             runner.cancel()
 
     runner._execute_step = cancel_on_second
-    asyncio.run(runner.run("cancel midway"))
-    assert runner.status == PlanStatus.CANCELLED
+    await run_with_approval(runner, "cancel midway")
+    assert runner.status == PlanPhase.CANCELLED
     assert runner._todo_state is not None
     assert runner._todo_state.cancelled_at is not None
     assert [step.status for step in runner._todo_state.steps] == ["done", "done", "skipped"]
 
 
-def test_exit_summary_content(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_exit_summary_content(tmp_path) -> None:
     runner = _runner(tmp_path)
-    asyncio.run(runner.run("summarize"))
+    await run_with_approval(runner, "summarize")
     summary = runner.build_exit_summary()
     assert summary.role == "assistant"
     assert runner.plan_name in summary.content
     assert "✅" in summary.content or "⬜" in summary.content
     assert "plans/" in summary.content
-    assert "todos/" in summary.content
+    assert "plan_checkpoints/" in summary.content
 
 
 def test_plan_name_format() -> None:
@@ -154,10 +176,11 @@ def test_plan_name_format() -> None:
         assert len(name) < 60
 
 
-def test_runner_planning_retry_on_parse_failure(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_planning_retry_on_parse_failure(tmp_path) -> None:
     adapter = MockAdapter(["侦察报告", "不是JSON", VALID_PLAN_JSON])
     runner = _runner(tmp_path, adapter)
-    result = asyncio.run(runner.run("test"))
+    result = await run_with_approval(runner, "test")
     assert result.role == "assistant"
     planning_requests = [
         request
@@ -168,14 +191,16 @@ def test_runner_planning_retry_on_parse_failure(tmp_path) -> None:
     assert runner.plan_name
 
 
-def test_runner_planning_fail_after_retry(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_planning_fail_after_retry(tmp_path) -> None:
     runner = _runner(tmp_path, MockAdapter(["侦察报告", "垃圾", "仍然垃圾"]))
     with pytest.raises(PlanParseError):
-        asyncio.run(runner.run("test"))
+        await run_with_approval(runner, "test")
 
 
-def test_runner_plan_file_from_llm(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_plan_file_from_llm(tmp_path) -> None:
     runner = _runner(tmp_path, MockAdapter(["侦察报告", VALID_PLAN_JSON]))
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     plan_content = (tmp_path / "plans" / f"{runner.plan_name}.md").read_text(encoding="utf-8")
     assert "LLM生成的目标" in plan_content

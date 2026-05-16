@@ -10,11 +10,18 @@ from backend.core.s01_agent_loop import PlanControlStore, PlanExecuteRunner
 from .feishu_plan_control import RUNNING_REPLY
 from .feishu_plan_renderer import FeishuPlanRenderer
 from .feishu_plan_runtime import FeishuPlanRunnerInput, create_feishu_plan_runner
+from .feishu_tool_approval import attach_feishu_runner_approval
 
 logger = get_logger(component="feishu_handler")
 
 
-async def handle_plan_message(handler: Any, chat_id: str, message_text: str, spec_id: str) -> None:
+async def handle_plan_message(
+    handler: Any,
+    chat_id: str,
+    message_text: str,
+    spec_id: str,
+    owner_id: str = "",
+) -> None:
     try:
         if chat_id in handler._plan_runners:
             await send_chat_text(handler, chat_id, RUNNING_REPLY)
@@ -24,7 +31,12 @@ async def handle_plan_message(handler: Any, chat_id: str, message_text: str, spe
             await send_chat_text(handler, chat_id, "请在 /plan 后提供任务描述。")
             return
         PlanControlStore().clear(f"feishu-{chat_id}")
-        renderer = FeishuPlanRenderer(handler._client, chat_id)
+        renderer = FeishuPlanRenderer(
+            handler._client,
+            chat_id,
+            owner_id=owner_id,
+            session_id=f"feishu-{chat_id}",
+        )
         runner = await create_feishu_plan_runner(
             FeishuPlanRunnerInput(
                 provider_manager=handler._pm,
@@ -33,8 +45,10 @@ async def handle_plan_message(handler: Any, chat_id: str, message_text: str, spe
                 agent_runtime=handler._agent_runtime,
                 spec_id=spec_id,
                 task_queue=handler._task_queue,
+                owner_id=owner_id,
             )
         )
+        attach_feishu_runner_approval(handler, chat_id, runner)
         handler._plan_runners[chat_id] = runner
         asyncio.create_task(handler._run_plan(chat_id, runner, plan_input))
     except Exception:
@@ -53,6 +67,26 @@ async def run_plan(handler: Any, chat_id: str, runner: PlanExecuteRunner, messag
     except Exception:
         logger.exception("feishu_plan_run_failed", chat_id=chat_id)
         await send_chat_text(handler, chat_id, "计划执行失败，请查看服务端日志。")
+    finally:
+        if handler._plan_runners.get(chat_id) is runner:
+            handler._plan_runners.pop(chat_id, None)
+        try:
+            handler._plan_summaries[chat_id] = runner.build_exit_summary().content
+        except Exception:
+            pass
+
+
+async def resume_plan(handler: Any, chat_id: str, runner: PlanExecuteRunner) -> None:
+    try:
+        await runner.resume_run()
+        summary = _plan_result_text(runner)
+        handler._plan_summaries[chat_id] = summary
+        await send_chat_text(handler, chat_id, summary[:4000])
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("feishu_plan_resume_failed", chat_id=chat_id)
+        await send_chat_text(handler, chat_id, "恢复计划执行失败，请查看服务端日志。")
     finally:
         if handler._plan_runners.get(chat_id) is runner:
             handler._plan_runners.pop(chat_id, None)
@@ -97,4 +131,10 @@ def parse_plan_request(text: str) -> tuple[str, str] | None:
     return None
 
 
-__all__ = ["handle_plan_message", "parse_plan_request", "run_plan", "send_chat_text"]
+__all__ = [
+    "handle_plan_message",
+    "parse_plan_request",
+    "resume_plan",
+    "run_plan",
+    "send_chat_text",
+]

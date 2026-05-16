@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ControlAction = Literal["", "pause", "resume", "stop"]
+ControlAction = Literal["", "approve", "reject", "pause", "resume", "stop"]
 
 
 class PlanControlSignal(BaseModel):
@@ -25,6 +25,12 @@ class PlanControlStore:
 
     def request_pause(self, session_id: str) -> None:
         self._write(session_id, PlanControlSignal(action="pause"))
+
+    def request_approve(self, session_id: str) -> None:
+        self._write(session_id, PlanControlSignal(action="approve"))
+
+    def request_reject(self, session_id: str, reason: str = "") -> None:
+        self._write(session_id, PlanControlSignal(action="reject", instruction=reason.strip()))
 
     def request_stop(self, session_id: str) -> None:
         self._write(session_id, PlanControlSignal(action="stop"))

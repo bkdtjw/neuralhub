@@ -61,12 +61,6 @@ class Settings(BaseSettings):
     twitter_password: str = ""
     twitter_proxy_url: str = ""
     twitter_cookies_file: str = "twitter_cookies.json"
-    jd_union_app_key: str = ""
-    jd_union_app_secret: str = ""
-    jd_union_access_token: str = ""
-    zhetaoke_app_key: str = ""
-    zhetaoke_tb_sid: str = ""
-    zhetaoke_tb_pid: str = ""
     notion_api_key: str = ""
     llm_fallback_provider_ids: str = ""
     llm_fallback_error_codes: str = (
@@ -77,6 +71,12 @@ class Settings(BaseSettings):
     llm_fallback_circuit_seconds: float = Field(default=300.0, ge=1.0)
     main_agent_provider_id: str = ""
     vision_subagent_provider_id: str = ""
+    jd_union_app_key: str = ""
+    jd_union_app_secret: str = ""
+    jd_union_access_token: str = ""
+    zhetaoke_app_key: str = ""
+    zhetaoke_tb_sid: str = ""
+    zhetaoke_tb_pid: str = ""
 
     @field_validator("morning_report_user_ids", mode="before")
     @classmethod

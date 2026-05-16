@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from backend.common.errors import LLMError
 from backend.common.types import LLMResponse, ProviderConfig, ProviderType, ToolCall
 from backend.core.s02_tools.builtin.browser_agent import main_agent_loop
 from backend.core.s02_tools.builtin.browser_agent.models import (
@@ -149,35 +148,6 @@ async def test_run_browser_agent_saves_agent_marked_screenshot(
 
     assert result.success is True
     assert len(result.screenshots) == 1
-    assert result.screenshots[0].read_bytes() == b"same"
-
-
-async def test_run_browser_agent_returns_provider_rejected_with_screenshot(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    class FakeAssetStore:
-        async def save_screenshot(self, task_id: str, url: str, png_bytes: bytes):
-            path = tmp_path / f"{task_id}.png"
-            path.write_bytes(png_bytes)
-            return path
-
-    async def reject_observe(*_args, **_kwargs) -> VisionObservation:
-        raise LLMError("API_ERROR", "The request was rejected because it was considered high risk", "p")
-
-    monkeypatch.setattr(main_agent_loop, "smart_browse", fake_smart_browse)
-    monkeypatch.setattr(main_agent_loop, "BrowserController", FakeController)
-    monkeypatch.setattr(main_agent_loop, "observe", reject_observe)
-
-    result = await main_agent_loop.run_browser_agent(
-        BrowserAgentConfig(task="capture news photo"),
-        object(),
-        FakeAssetStore(),
-    )
-
-    assert result.success is False
-    assert result.reason == "provider_rejected"
-    assert "模型服务拒绝" in result.content
     assert result.screenshots[0].read_bytes() == b"same"
 
 

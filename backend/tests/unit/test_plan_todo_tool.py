@@ -4,10 +4,13 @@ import asyncio
 
 from backend.core.s01_agent_loop import (
     ExecutionPlan,
+    PlanCheckpointStore,
     PlanExecuteRunner,
     PlanStep,
     PlanStore,
     TodoStore,
+    TodoState,
+    TodoStep,
 )
 from backend.core.s01_agent_loop.plan_todo_tool import create_todoupdate_executor
 from backend.core.s02_tools import ToolRegistry
@@ -33,13 +36,14 @@ def _runner_with_plan(tmp_path) -> PlanExecuteRunner:
     )
     runner._plan_name = "test-plan"
     runner._plan = plan
-    runner._plan_store.save_plan(runner._plan_name, plan)
-    runner._todo_state = runner._todo_store.create(
-        runner._session_id, runner._plan_name, plan.steps
+    runner._todo_state = TodoState(
+        plan_name=runner._plan_name,
+        session_id=runner._session_id,
+        steps=[TodoStep(id=step.step_id, title=step.title) for step in plan.steps],
     )
     runner._todo_state.steps[0].status = "done"
     runner._current_step_id = 1
-    runner._todo_store.update(runner._session_id, runner._plan_name, runner._todo_state)
+    runner._persist_state()
     return runner
 
 
@@ -50,7 +54,12 @@ def test_todoupdate_add_step(tmp_path) -> None:
     assert result.is_error is False
     assert [step.title for step in runner._plan.steps] == ["done", "new", "pending", "later"]
     assert [step.title for step in runner._todo_state.steps] == ["done", "new", "pending", "later"]
-    assert "new" in (tmp_path / "plans" / "test-plan.md").read_text(encoding="utf-8")
+    state = PlanCheckpointStore(str(tmp_path / "plan_checkpoints")).load(
+        "test-session", "test-plan"
+    )
+    assert state is not None
+    assert state.plan is not None
+    assert [step.title for step in state.plan.steps] == ["done", "new", "pending", "later"]
 
 
 def test_todoupdate_remove_step(tmp_path) -> None:

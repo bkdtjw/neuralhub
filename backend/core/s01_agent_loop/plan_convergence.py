@@ -35,9 +35,9 @@ class ConvergenceMonitor:
             )
 
     def _flush_pending_prompts(self) -> None:
-        messages = getattr(self._loop, "_messages")
-        for prompt in self._pending_prompts:
-            messages.append(Message(role="user", content=prompt))
+        self._loop.message_history.extend(
+            [Message(role="user", content=prompt) for prompt in self._pending_prompts]
+        )
         self._pending_prompts.clear()
 
 
