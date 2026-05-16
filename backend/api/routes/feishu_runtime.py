@@ -33,6 +33,16 @@ BROWSE_WEB_HINT = """
 调用方式：browse_web(task="自然语言描述任务", domain="可选，用于加载登录态")。
 工具返回文字结果。任务可能耗时 30 秒到几分钟，期间无中间反馈。
 """
+PRODUCT_COUPON_HINT = """
+
+你可以调用 product_coupon_lookup 查询淘宝/京东具体商品是否有优惠券或联盟商品数据。适合场景：
+- 用户发送【淘宝】或【京东】分享文案、短链、商品链接、商品 ID、京东 SKU
+- 用户问某个具体商品链接有没有优惠券、券后价、店铺和商品情况
+- 需要先展开短链、识别平台、提取商品 ID，再查券
+
+关键词找商品用 product_search；具体链接/文案查券用 product_coupon_lookup。
+不要为了查商品优惠券先打开浏览器。工具查不到时，明确说明当前数据源未查到，不要自行推断。
+"""
 
 
 async def build_agent_loop(
@@ -67,11 +77,14 @@ async def build_agent_loop(
         agent_runtime=agent_runtime,
         spec_registry=spec_registry,
         task_queue=task_queue,
+        include_internal_product_tools=False,
     )
     bridge = MCPToolBridge(MCPServerManager(), registry)
     await bridge.sync_all()
     if registry.has("browse_web"):
         resolved_system_prompt += BROWSE_WEB_HINT
+    if registry.has("product_coupon_lookup"):
+        resolved_system_prompt += PRODUCT_COUPON_HINT
     return AgentLoop(
         config=AgentConfig(
             model=resolved_model,
