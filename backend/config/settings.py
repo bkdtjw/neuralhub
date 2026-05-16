@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     jd_union_app_secret: str = ""
     jd_union_access_token: str = ""
     zhetaoke_app_key: str = ""
+    zhetaoke_tb_sid: str = ""
+    zhetaoke_tb_pid: str = ""
     notion_api_key: str = ""
     llm_fallback_provider_ids: str = ""
     llm_fallback_error_codes: str = (

@@ -33,15 +33,15 @@ def create_zhetaoke_product_detail_tool(appkey: str = "") -> tuple[ToolDefinitio
     definition = ToolDefinition(
         name="zhetaoke_product_detail",
         description=(
-            "Fetch JD affiliate product detail and coupon information by product id. "
-            "Use when a JD item id or item URL is known."
+            "Fetch Zhetaoke Taobao affiliate product detail and coupon information. "
+            "Use when a Taobao item URL is known; numeric-only item ids may be rejected by the API."
         ),
         category="search",
         parameters=ToolParameterSchema(
             properties={
-                "tao_id": {"type": "string", "description": "单个京东商品 ID"},
+                "tao_id": {"type": "string", "description": "单个淘宝商品链接，优先传完整 URL"},
                 "num_iids": {"type": "string", "description": "多个站内商品 ID，逗号分隔，最多 40 个"},
-                "code": {"type": "string", "description": "可选折京客编号，需与 tao_id 对应"},
+                "code": {"type": "string", "description": "可选折淘客编号，需与 tao_id 对应"},
                 "detail_type": {"type": "string", "description": "0 返回 S/G 券全部；1 返回单条，默认 1"},
             },
             required=[],
@@ -81,13 +81,17 @@ def _load_credentials(appkey: str) -> ZhetaokeCredentials:
     resolved = (appkey or os.environ.get("ZHETAOKE_APP_KEY", "")).strip()
     if not resolved:
         raise ZhetaokeClientError("请配置 ZHETAOKE_APP_KEY")
-    return ZhetaokeCredentials(appkey=resolved)
+    return ZhetaokeCredentials(
+        appkey=resolved,
+        sid=os.environ.get("ZHETAOKE_TB_SID", "").strip(),
+        pid=os.environ.get("ZHETAOKE_TB_PID", "").strip(),
+    )
 
 
 def _format_report(products: list[ZhetaokeProduct]) -> str:
     if not products:
-        return "折京客商品详情：未返回商品数据。"
-    lines = [f"折京客商品详情：返回 {len(products)} 条记录"]
+        return "折淘客商品详情：未返回商品数据。"
+    lines = [f"折淘客商品详情：返回 {len(products)} 条记录"]
     for index, item in enumerate(products, start=1):
         lines.extend(
             [

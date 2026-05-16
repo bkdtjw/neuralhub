@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from backend.config.http_client import load_http_client_config
 from backend.core.s02_tools.builtin.youtube_log_filter import install_httpx_api_key_redaction
 
-ZHETAOKE_DETAIL_URL = "http://api.zhetaoke.com:20000/api/api_detail.ashx"
+ZHETAOKE_DETAIL_URL = "https://api.zhetaoke.com:10002/api/api_detail.ashx"
+ZHETAOKE_DETAIL_BACKUP_URL = "http://api.zhetaoke.cn:10000/api/api_detail.ashx"
 install_httpx_api_key_redaction()
 
 
@@ -18,6 +19,8 @@ class ZhetaokeClientError(Exception):
 
 class ZhetaokeCredentials(BaseModel):
     appkey: str
+    sid: str = ""
+    pid: str = ""
 
 
 class ZhetaokeDetailRequest(BaseModel):
@@ -99,6 +102,8 @@ def _build_params(
 ) -> dict[str, str]:
     params = {
         "appkey": credentials.appkey.strip(),
+        "sid": credentials.sid.strip(),
+        "pid": credentials.pid.strip(),
         "tao_id": request.tao_id,
         "num_iids": request.num_iids,
         "code": request.code.strip(),
@@ -108,21 +113,44 @@ def _build_params(
 
 
 async def _request_json(client: httpx.AsyncClient, params: dict[str, str]) -> dict[str, Any]:
-    response = await client.get(ZHETAOKE_DETAIL_URL, params=params)
+    last_error = ""
+    for url in (ZHETAOKE_DETAIL_URL, ZHETAOKE_DETAIL_BACKUP_URL):
+        try:
+            return await _request_json_from_url(client, url, params)
+        except ZhetaokeClientError as exc:
+            last_error = str(exc)
+    raise ZhetaokeClientError(last_error or "折淘客 API 调用失败")
+
+
+async def _request_json_from_url(
+    client: httpx.AsyncClient,
+    url: str,
+    params: dict[str, str],
+) -> dict[str, Any]:
+    response = await client.get(url, params=params)
     if response.status_code >= 400:
-        raise ZhetaokeClientError(f"折京客 API HTTP {response.status_code}")
+        raise ZhetaokeClientError(f"折淘客 API HTTP {response.status_code}")
     payload = response.json()
     if not isinstance(payload, dict):
-        raise ZhetaokeClientError("折京客 API 返回不是 JSON object")
+        raise ZhetaokeClientError("折淘客 API 返回不是 JSON object")
     status = int(payload.get("status") or 0)
     if status != 200:
-        raise ZhetaokeClientError(f"折京客 API 错误 {status}")
+        detail = payload.get("content")
+        suffix = f"：{detail}" if isinstance(detail, str) and detail else ""
+        raise ZhetaokeClientError(f"折淘客 API 错误 {status}{suffix}")
     return payload
 
 
 def _extract_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     content = payload.get("content") or []
-    return [item for item in content if isinstance(item, dict)] if isinstance(content, list) else []
+    if not isinstance(content, list):
+        return []
+    return [item for item in content if isinstance(item, dict) and _has_product_data(item)]
+
+
+def _has_product_data(item: dict[str, Any]) -> bool:
+    fields = ("title", "tao_title", "pict_url", "size", "quanhou_jiage", "item_url")
+    return any(str(item.get(field) or "").strip() for field in fields)
 
 
 def _to_product(item: dict[str, Any]) -> ZhetaokeProduct:
