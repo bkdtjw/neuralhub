@@ -219,6 +219,7 @@ async def test_plan_runner_uses_spec_tools_and_prompt(runtime: AgentRuntime) -> 
     )()
     system_prompt, _ = runner._build_step_prompt(context)  # noqa: SLF001
     loop = runner._build_step_loop(TodoStep(id=1, title="t"), context)  # noqa: SLF001
-    assert "spec prompt" in system_prompt
-    assert "base:" in system_prompt
+    assert "spec prompt" not in system_prompt
+    assert "base:" in runner._system_prompt  # noqa: SLF001
+    assert loop._static_skill_messages[0].content == "spec prompt"  # noqa: SLF001
     assert loop._config.max_iterations == 7  # noqa: SLF001

@@ -63,6 +63,7 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                         tool_definitions,
                         skill_loader=loop._skill_loader,
                         memory_index=loop._memory_index,
+                        static_skill_messages=loop._static_skill_messages,
                     )
                 )
                 log_llm_call_end(logger, response)

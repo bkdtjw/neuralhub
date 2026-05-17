@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger
@@ -10,28 +11,27 @@ from backend.common.types import Message, generate_id
 from backend.common.types.llm import LLMRequest
 
 from .plan_control import PlanControlState
+from .plan_checkpoint_store import PlanCheckpointStore
 from .plan_execute_errors import PlanExecuteError
+from .plan_execute_runner_state import PlanExecuteRunnerStateMixin, checkpoint_dir_for
 from .plan_execute_runner_steps import PlanExecuteRunnerStepsMixin
-from .plan_finish import (
-    ExitSummaryInput,
-    build_exit_summary_content,
-    execution_finish_status,
-    plan_status_for_finish,
-)
-from .plan_models import ExecutionPlan, PlanStatus, TodoState
+from .plan_finish import ExitSummaryInput, build_exit_summary_content, plan_status_for_finish
+from .plan_models import ExecutionPlan, PlanPhase, PlanState
 from .plan_prompt import PlanParseError, build_planning_messages, parse_plan_response
 from .plan_recon import ReconInput, run_recon
 from .plan_renderer import PlanRenderer
+from .plan_resume import PlanResumeMixin
+from .plan_state_machine import is_terminal
 from .plan_store import PlanStore, TodoStore, generate_plan_name
 
 if TYPE_CHECKING:
     from backend.adapters.base import LLMAdapter
     from backend.core.s02_tools import ToolRegistry
+    from backend.core.s02_tools.mcp import BridgeProtocol
 
 logger = get_logger(component="plan_execute_runner")
 
-
-class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
+class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecuteRunnerStepsMixin):
     def __init__(
         self,
         adapter: LLMAdapter,
@@ -40,66 +40,81 @@ class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
         todo_store: TodoStore,
         renderer: PlanRenderer | None = None,
         session_id: str = "",
+        bridge: BridgeProtocol | None = None,
+        agent_spec: Any | None = None,
+        checkpoint_store: PlanCheckpointStore | None = None,
+        owner_id: str = "unknown",
+        system_prompt: str = "",
+        skill_prompt: str = "",
     ) -> None:
         self._adapter = adapter
         self._tool_registry = tool_registry
         self._plan_store = plan_store
         self._todo_store = todo_store
+        self._bridge = bridge
+        self._agent_spec = agent_spec
+        self._checkpoint_store = checkpoint_store or PlanCheckpointStore(checkpoint_dir_for(todo_store))
         self._renderer = renderer
         self._session_id = session_id or generate_id()
-        self._status = PlanStatus.IDLE
-        self._plan: ExecutionPlan | None = None
-        self._todo_state: TodoState | None = None
-        self._plan_name = ""
-        self._cancelled = False
+        self._owner_id = owner_id or "unknown"
+        self._system_prompt = system_prompt
+        self._skill_prompt = skill_prompt
+        self._steps_dir = Path(getattr(todo_store, "_base_dir", Path("data/todos"))).parent / "steps"
+        self._state = PlanState(
+            plan_name="", session_id=self._session_id, owner_id=self._owner_id
+        )
+        self._cancel_requested = False
         self._control = PlanControlState()
-        self._current_step_id = 0
-        self._todo_update_count = 0
+        self._approval_event: asyncio.Event = asyncio.Event()
+        self._approval_timeout_seconds: float = 600.0
+        self._checkpoint_path: Path | None = None
         self._plan_path: Path | None = None
         self._todo_path: Path | None = None
-
-    @property
-    def status(self) -> PlanStatus:
-        return self._status
-
-    @property
-    def plan_name(self) -> str:
-        return self._plan_name
+        self._active_step_loop: Any | None = None
 
     async def run(self, user_message: str) -> Message:
         try:
-            self._plan_name = generate_plan_name()
-            self._set_status(PlanStatus.RECON)
-            await self._notify_renderer("on_recon_start", user_message)
-            recon_report = await self._run_recon(user_message)
-            await self._notify_renderer("on_recon_done", recon_report[:200])
-            self._set_status(PlanStatus.PLANNING)
-            self._plan = await self._generate_plan(user_message, recon_report)
-            self._plan_path = self._plan_store.save_plan(self._plan_name, self._plan)
-            self._todo_state = self._todo_store.create(
-                self._session_id, self._plan_name, self._plan.steps
-            )
-            self._todo_path = self._todo_store._path_for(self._session_id, self._plan_name)
-            self._set_status(PlanStatus.PLAN_READY)
-            await self._notify_renderer("on_plan_created", self._plan, self._plan_name)
-            self._set_status(PlanStatus.EXECUTING)
-            self._todo_state.status = "executing"
-            self._persist_todo()
-            await self._notify_renderer("on_plan_approved", self._plan_name)
-            await self._execute_todo_steps()
-            self._finish(
-                "cancelled" if self._cancelled else execution_finish_status(self._todo_state)
-            )
-            await self._notify_finished()
-            return self.build_exit_summary()
-        except AgentError:
+            self._reset_state(generate_plan_name())
+            if not await self._run_from_recon(user_message):
+                return self.build_exit_summary()
+            return await self._finish_run()
+        except AgentError as exc:
+            self._state.error_message = exc.message
+            self._persist_state()
             raise
         except Exception as exc:
+            self._state.error_message = str(exc)
+            self._persist_state()
             raise PlanExecuteError("PLAN_EXECUTE_RUN_ERROR", str(exc)) from exc
-
     def cancel(self) -> None:
-        self._cancelled = True
+        if is_terminal(self._state.phase):
+            return
+        if self._state.interrupted_at is None:
+            self._state.interrupted_at = datetime.now()
+        self._cancel_requested = True
+        self._set_phase(PlanPhase.CANCELLED)
         self._control.resume()
+        self._approval_event.set()
+
+    def approve(self) -> None:
+        """人工批准计划，解除 run() 的等待阻塞。"""
+        self._approval_event.set()
+
+    def reject(self, reason: str = "") -> None:
+        """人工拒绝计划，取消执行。"""
+        self._state.error_message = reason or "Plan rejected by user"
+        self._cancelled = True
+        self._approval_event.set()
+
+    def approve_tool_call(self, tool_call_id: str) -> bool:
+        if self._active_step_loop is None:
+            return False
+        return self._active_step_loop.approve_tool_call(tool_call_id)
+
+    def reject_tool_call(self, tool_call_id: str) -> bool:
+        if self._active_step_loop is None:
+            return False
+        return self._active_step_loop.reject_tool_call(tool_call_id)
 
     def build_exit_summary(self) -> Message:
         if self._todo_state is None:
@@ -115,8 +130,13 @@ class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
         )
         return Message(role="assistant", content=content)
 
-    def _set_status(self, status: PlanStatus) -> None:
-        self._status = status
+    @property
+    def bridge(self) -> BridgeProtocol | None:
+        return self._bridge
+
+    @property
+    def agent_spec(self) -> Any | None:
+        return self._agent_spec
 
     async def _notify_renderer(self, method_name: str, *args: object, **kwargs: object) -> None:
         if self._renderer is None:
@@ -147,9 +167,7 @@ class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
         await self._notify_renderer("on_plan_completed", self._plan_name, self._todo_state)
 
     async def _run_recon(self, user_message: str) -> str:
-        return await run_recon(
-            ReconInput(self._adapter, self._tool_registry, self._session_id, user_message)
-        )
+        return await run_recon(ReconInput(self._adapter, self._tool_registry, self._session_id, user_message))
 
     async def _generate_plan(self, user_message: str, recon_report: str = "") -> ExecutionPlan:
         try:
@@ -157,9 +175,8 @@ class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
             messages = build_planning_messages(user_message, tool_names, recon_report)
             errors: list[str] = []
             for _ in range(2):
-                response = await self._adapter.complete(
-                    LLMRequest(model="", messages=messages, temperature=0.3, max_tokens=4096)
-                )
+                request = LLMRequest(model="", messages=messages, temperature=0.3, max_tokens=4096)
+                response = await self._adapter.complete(request)
                 try:
                     return parse_plan_response(response.content)
                 except PlanParseError as exc:
@@ -176,7 +193,7 @@ class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
         for step in self._todo_state.steps[start:]:
             if step.status in {"pending", "running"}:
                 step.status = "skipped"
-        self._persist_todo()
+        self._persist_state()
 
     def _finish(self, status: str) -> None:
         if self._todo_state is None:
@@ -184,22 +201,23 @@ class PlanExecuteRunner(PlanExecuteRunnerStepsMixin):
         self._todo_state.status = status
         date_field = "cancelled_at" if status == "cancelled" else "completed_at"
         next_status = plan_status_for_finish(status)
+        if status == "cancelled" and self._state.interrupted_at is None:
+            self._state.interrupted_at = datetime.now()
         setattr(self._todo_state, date_field, datetime.now())
-        self._set_status(next_status)
-        self._persist_todo()
-
-    def _persist_todo(self) -> None:
-        if self._todo_state is not None:
-            self._todo_store.update(self._session_id, self._plan_name, self._todo_state)
+        if self._state.phase == next_status:
+            self._persist_state()
+            self._persist_final_plan()
+            return
+        self._set_phase(next_status)
+        self._persist_final_plan()
 
     def _plan_ref(self) -> str:
-        path = self._plan_path or Path("data/plans") / f"{self._plan_name}.md"
-        return path.as_posix()
+        return (self._plan_path or Path("data/plans") / f"{self._plan_name}.md").as_posix()
 
     def _todo_ref(self) -> str:
-        filename = f"{self._session_id}-plan-{self._plan_name}.json"
-        path = self._todo_path or Path("data/todos") / filename
-        return path.as_posix()
-
+        if self._checkpoint_path is not None:
+            return self._checkpoint_path.as_posix()
+        filename = f"{self._session_id}-{self._plan_name}.json"
+        return (Path("data/plan_checkpoints") / filename).as_posix()
 
 __all__ = ["PlanExecuteRunner"]

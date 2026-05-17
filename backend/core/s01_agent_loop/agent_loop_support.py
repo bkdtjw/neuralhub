@@ -54,13 +54,20 @@ def build_llm_request(
     *,
     skill_loader: Any | None = None,
     memory_index: Any | None = None,
+    static_skill_messages: list[Message] | None = None,
 ) -> LLMRequest:
     system_msg, summary, recent = _split_history(messages)
     system_prompt = config.system_prompt or (system_msg.content if system_msg else "")
     latest_text = _latest_user_text(recent)
-    skill_messages = _coerce_zone_messages(
-        skill_loader.match(latest_text) if skill_loader else []
-    )
+    skill_messages = [
+        *_coerce_zone_messages(static_skill_messages or []),
+        *_coerce_zone_messages(skill_loader.match(latest_text) if skill_loader else []),
+    ]
+    skill_messages = [
+        message
+        for message in skill_messages
+        if not (message.role == "system" and message.content == system_prompt)
+    ]
     memory_messages = _coerce_zone_messages(
         memory_index.match(latest_text, limit=5) if memory_index else []
     )

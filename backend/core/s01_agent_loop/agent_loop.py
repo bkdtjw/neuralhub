@@ -54,6 +54,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         tool_review_context: ToolReviewContext | None = None,
         skill_loader: Any | None = None,
         memory_index: Any | None = None,
+        static_skill_messages: list[Message] | None = None,
     ) -> None:
         self._config = config
         self._adapter = adapter
@@ -64,6 +65,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._tool_review_context = tool_review_context or ToolReviewContext()
         self._skill_loader = skill_loader
         self._memory_index = memory_index
+        self._static_skill_messages = static_skill_messages or []
         self._executor = ToolExecutor(tool_registry)
         self._security_gate = SecurityGate(
             policy=security_policy or SecurityPolicy(allowed_tools=[], dangerous_tools=[]),
