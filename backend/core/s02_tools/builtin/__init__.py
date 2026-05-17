@@ -22,6 +22,7 @@ from .file_glob import create_glob_tool
 from .file_grep import create_grep_tool
 from .file_read import create_read_tool
 from .file_write import create_write_tool
+from .read_history import create_read_history_tool
 
 if TYPE_CHECKING:
     from backend.core.s05_skills import AgentRuntime, SpecRegistry
@@ -88,6 +89,8 @@ def register_builtin_tools(
                         ),
                     )
                 )
+
+    tools.append(create_read_history_tool())
 
     # YouTube 搜索工具 - API Key 版本（优先）
     resolved_youtube_api_key = youtube_api_key or os.environ.get("YOUTUBE_API_KEY", "")
