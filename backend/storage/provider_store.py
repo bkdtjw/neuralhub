@@ -25,6 +25,7 @@ _PROVIDER_FIELDS = (
     "extra_body_json",
     "is_default",
     "enabled",
+    "roles",
 )
 
 

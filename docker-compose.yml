@@ -10,6 +10,7 @@ services:
     environment:
       API_PORT: "8000"
       API_EXTRA_PORTS: "8443"
+      GUNICORN_WORKERS: "1"
       LOG_FORMAT: ${LOG_FORMAT:-json}
       LOG_STDOUT: ${LOG_STDOUT:-1}
       LOG_FILE_ENABLED: ${LOG_FILE_ENABLED:-1}
@@ -25,6 +26,7 @@ services:
       MIHOMO_SUB_PATH: /app/sub_raw.yaml
       MIHOMO_CUSTOM_NODES_PATH: /app/custom_nodes.yaml
       MIHOMO_WORK_DIR: /app/data
+      STORAGE_STATE_DIR: /app/data/storage_state
     entrypoint:
       - /app/entrypoint.sh
     network_mode: host
@@ -36,6 +38,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./data/logs:/app/data/logs
+      - ./data/storage_state:/app/data/storage_state
       - ./reports:/app/reports
       - ./dist/frontend:/app/dist/frontend:ro
       # Twitter/X cookies for authentication (optional - omit if not using X search)
@@ -71,6 +74,7 @@ services:
       LOKI_APP_LABEL: ${LOKI_APP_LABEL:-agent-studio}
       NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
       no_proxy: ${NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,host.docker.internal}
+      STORAGE_STATE_DIR: /app/data/storage_state
     entrypoint: ["python", "-m", "backend.sub_worker"]
     command: []
     network_mode: host
@@ -80,6 +84,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./data/logs:/app/data/logs
+      - ./data/storage_state:/app/data/storage_state
       - ./reports:/app/reports
       - ./twitter_cookies.json:/app/twitter_cookies.json
       # Proxy config files for mihomo tools

@@ -49,7 +49,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 RUN chown -R appuser:appuser /home/appuser
 
 COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+RUN python -m playwright install --with-deps chromium && \
+    chown -R appuser:appuser /home/appuser
 COPY --chown=appuser:appuser backend /app/backend
+COPY --chown=appuser:appuser config /app/config
 COPY --chown=appuser:appuser agents /app/agents
 COPY --chown=appuser:appuser skills /app/skills
 COPY --chown=appuser:appuser --chmod=755 entrypoint.sh /app/entrypoint.sh

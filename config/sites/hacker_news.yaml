@@ -1,0 +1,19 @@
+name: hacker_news
+domain: news.ycombinator.com
+api_kind: hn
+entry_url: https://news.ycombinator.com/
+probe_url: https://news.ycombinator.com/news
+wait_until: domcontentloaded
+timeout_ms: 15000
+content_selectors:
+  - body
+title_selectors:
+  - title
+image_min_width: 200
+image_min_height: 200
+blocked_image_url_keywords:
+  - avatar
+  - icon
+  - logo
+  - sprite
+  - tracking

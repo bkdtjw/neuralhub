@@ -6,13 +6,14 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class PlanStatus(str, Enum):  # noqa: UP042
-    """Runner state machine for Plan & Execute mode."""
+class PlanPhase(str, Enum):  # noqa: UP042
+    """Persisted phase for Plan & Execute mode."""
 
     IDLE = "idle"
     RECON = "recon"
     PLANNING = "planning"
     PLAN_READY = "plan_ready"
+    AWAITING_APPROVAL = "awaiting_approval"
     EXECUTING = "executing"
     PAUSED = "paused"
     COMPLETED = "completed"
@@ -49,6 +50,7 @@ class TodoStep(BaseModel):
     key_findings: list[str] = Field(default_factory=list)
     files_touched: list[str] = Field(default_factory=list)
     output_summary: str = ""
+    checkpoint_session_id: str = ""
 
 
 class TodoState(BaseModel):
@@ -63,9 +65,29 @@ class TodoState(BaseModel):
     cancelled_at: datetime | None = None
 
 
+class PlanState(BaseModel):
+    """Persisted runtime state for one Plan & Execute run."""
+
+    plan_name: str
+    session_id: str
+    owner_id: str = "unknown"
+    phase: PlanPhase = PlanPhase.IDLE
+    plan: ExecutionPlan | None = None
+    todo: TodoState | None = None
+    current_step_id: int = 0
+    error_message: str = ""
+    interrupted_at: datetime | None = None
+    resume_point: str = ""
+    todo_update_count: int = 0
+    recon_report: str = ""
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
 __all__ = [
     "ExecutionPlan",
-    "PlanStatus",
+    "PlanPhase",
+    "PlanState",
     "PlanStep",
     "TodoState",
     "TodoStep",

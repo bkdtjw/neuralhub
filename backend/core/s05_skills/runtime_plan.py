@@ -42,6 +42,7 @@ async def create_runtime_runner(
     renderer: PlanRenderer | None = None,
     is_sub_agent: bool = False,
     checkpoint_fn: CheckpointFn | None = None,
+    owner_id: str = "unknown",
     bridge_cls: type[MCPToolBridge] = MCPToolBridge,
 ) -> AgentLoop | PlanExecuteRunner:
     resolved_spec = _resolve_spec(runtime, spec, spec_id)
@@ -72,6 +73,7 @@ async def create_runtime_runner(
             event_handler,
             renderer,
             is_sub_agent,
+            owner_id,
             bridge_cls,
         )
     raise AgentError("MODE_NOT_SUPPORTED", f"Unsupported runner mode: {effective_mode}")
@@ -140,6 +142,7 @@ async def _create_plan_runner(
     event_handler: AgentEventHandler | None,
     renderer: PlanRenderer | None,
     is_sub_agent: bool,
+    owner_id: str,
     bridge_cls: type[MCPToolBridge],
 ) -> PlanExecuteRunner:
     resolved_workspace = os.path.abspath(workspace or os.getcwd())
@@ -179,10 +182,11 @@ async def _create_plan_runner(
         TodoStore(),
         renderer or SilentPlanRenderer(),
         session_id,
+        bridge=bridge,
+        agent_spec=spec,
+        owner_id=owner_id,
     )
     _patch_plan_runner(runner, runtime, spec, resolved_workspace, event_handler)
-    setattr(runner, "_bridge", bridge)
-    setattr(runner, "_agent_spec", spec)
     return runner
 
 
@@ -209,7 +213,7 @@ def _patch_plan_runner(
         loop = original_loop(todo_step, context)
         if spec is not None:
             loop._config.max_iterations = spec.max_iterations  # noqa: SLF001
-            setattr(loop, "_timeout_seconds", spec.timeout_seconds)
+            loop._config.timeout_seconds = spec.timeout_seconds  # noqa: SLF001
         if event_handler is not None:
             loop.on(event_handler)
         return loop

@@ -52,8 +52,7 @@ def create_todoupdate_executor(runner: PlanExecuteRunner) -> ToolExecuteFn:
                 return _result(message, is_error=True)
             runner._todo_update_count += 1
             plan.version += 1
-            runner._plan_store.update_plan(runner._plan_name, plan)
-            runner._todo_store.update(runner._session_id, runner._plan_name, todo)
+            runner._persist_state(persist_plan=True, plan_amended=True)
             await runner._notify_renderer(
                 "on_steps_updated",
                 runner._plan_name,

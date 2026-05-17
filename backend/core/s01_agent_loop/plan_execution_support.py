@@ -3,7 +3,6 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 
-from .agent_loop import AgentLoop
 from .plan_models import ExecutionPlan, PlanStep, TodoState, TodoStep
 
 OUTPUT_SUMMARY_LIMIT = 4000
@@ -19,6 +18,7 @@ class StepContext:
     previous_summary: str
     step_index: int
     total_steps: int
+    completed_context: str = ""
 
 
 def find_plan_step(plan: ExecutionPlan | None, step_id: int) -> PlanStep | None:
@@ -28,22 +28,18 @@ def find_plan_step(plan: ExecutionPlan | None, step_id: int) -> PlanStep | None:
 
 
 def build_step_context(
-    plan: ExecutionPlan | None,
-    todo_state: TodoState | None,
-    todo_step: TodoStep,
+    plan: ExecutionPlan | None, todo_state: TodoState | None, todo_step: TodoStep
 ) -> StepContext | None:
     plan_step = find_plan_step(plan, todo_step.id)
     if plan_step is None or plan is None:
         return None
-    index = next(
-        (idx for idx, step in enumerate(plan.steps, start=1) if step.step_id == todo_step.id),
-        1,
-    )
+    index = next((idx for idx, step in enumerate(plan.steps, start=1) if step.step_id == todo_step.id), 1)
     return StepContext(
         plan_step=plan_step,
         previous_summary=previous_done_summary(todo_state, todo_step.id),
         step_index=index,
         total_steps=len(plan.steps),
+        completed_context=build_completed_steps_context(todo_state, todo_step.id),
     )
 
 
@@ -57,6 +53,40 @@ def previous_done_step(todo_state: TodoState | None, step_id: int) -> TodoStep |
 def previous_done_summary(todo_state: TodoState | None, step_id: int) -> str:
     step = previous_done_step(todo_state, step_id)
     return step.output_summary if step is not None else ""
+
+
+def build_completed_steps_context(
+    todo_state: TodoState | None, current_step_id: int, max_total_chars: int = 2000
+) -> str:
+    """构建所有已完成步骤的结构化上下文摘要。"""
+    if todo_state is None or max_total_chars <= 0:
+        return ""
+    steps = sorted(
+        (step for step in todo_state.steps if step.status == "done" and step.id < current_step_id), key=lambda step: step.id
+    )
+    if not steps:
+        return ""
+    full_text = "\n\n".join(_format_completed_step(step) for step in steps)
+    if len(full_text) <= max_total_chars:
+        return full_text
+    recent_start = max(len(steps) - 3, 0)
+    blocks = [_format_completed_step_brief(step) if index < recent_start else _format_completed_step(step) for index, step in enumerate(steps)]
+    while blocks and len("\n\n".join(blocks)) > max_total_chars:
+        blocks.pop(0)
+    return "\n\n".join(blocks)
+
+
+def _format_completed_step(step: TodoStep) -> str:
+    summary = step.output_summary.strip()[:300] or "无"
+    files = _format_step_values(step.files_touched, ", ")
+    findings = _format_step_values(step.key_findings[:MAX_KEY_FINDINGS], "; ")
+    return f"### 步骤 {step.id}: {step.title}\n摘要: {summary}\n修改文件: {files}\n关键发现: {findings}"
+
+def _format_completed_step_brief(step: TodoStep) -> str:
+    return f"步骤 {step.id}: {step.title} | 文件: {_format_step_values(step.files_touched, ', ')}"
+
+def _format_step_values(values: list[str], separator: str) -> str:
+    return separator.join(value for value in values if value) or "无"
 
 
 def remaining_plan_steps(plan: ExecutionPlan | None, step_id: int) -> list[PlanStep]:
@@ -74,17 +104,15 @@ def refresh_pending_todo_titles(todo_state: TodoState | None, plan: ExecutionPla
             todo_step.title = titles[todo_step.id]
 
 
-def extract_step_context(todo_step: TodoStep, loop: AgentLoop) -> None:
+def extract_step_context(todo_step: TodoStep, loop: object) -> None:
     messages = loop.messages
     todo_step.output_summary = _extract_output_summary(messages)
     todo_step.files_touched = _extract_files_touched(messages)
     todo_step.key_findings = _extract_key_findings(messages)
 
 
-def tool_call_count(loop: AgentLoop) -> int:
-    return sum(
-        len(message.tool_calls or []) for message in loop.messages if message.role == "assistant"
-    )
+def tool_call_count(loop: object) -> int:
+    return sum(len(message.tool_calls or []) for message in loop.messages if message.role == "assistant")
 
 
 def _extract_output_summary(messages: list[object]) -> str:
@@ -169,16 +197,4 @@ def _first_nonempty_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-__all__ = [
-    "KEY_FINDING_LIMIT",
-    "MAX_KEY_FINDINGS",
-    "OUTPUT_SUMMARY_LIMIT",
-    "SUMMARY_DISPLAY_LIMIT",
-    "build_step_context",
-    "extract_step_context",
-    "find_plan_step",
-    "previous_done_step",
-    "refresh_pending_todo_titles",
-    "remaining_plan_steps",
-    "tool_call_count",
-]
+__all__ = ["KEY_FINDING_LIMIT", "MAX_KEY_FINDINGS", "OUTPUT_SUMMARY_LIMIT", "SUMMARY_DISPLAY_LIMIT", "build_completed_steps_context", "build_step_context", "extract_step_context", "find_plan_step", "previous_done_step", "refresh_pending_todo_titles", "remaining_plan_steps", "tool_call_count"]

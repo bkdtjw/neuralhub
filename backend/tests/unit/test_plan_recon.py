@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from backend.core.s01_agent_loop import PlanExecuteRunner, PlanStatus, PlanStore, TodoStore
+import pytest
+
+from backend.core.s01_agent_loop import PlanExecuteRunner, PlanPhase, PlanStore, TodoStore
 from backend.core.s01_agent_loop.plan_recon import build_readonly_registry, is_readonly_bash
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
-from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json
+from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json, run_with_approval
 
 
 def _runner(
@@ -21,20 +23,22 @@ def _runner(
     )
 
 
-def test_recon_runs_before_planning(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_recon_runs_before_planning(tmp_path) -> None:
     adapter = MockAdapter(["侦察报告: runner 实际结构", plan_json(step_count=1), "done"])
     runner = _runner(tmp_path, adapter)
-    asyncio.run(runner.run("重构 runner"))
+    await run_with_approval(runner, "重构 runner")
     assert "代码侦察员" in adapter.requests[0].messages[0].content
     assert "Plan & Execute 规划者" in adapter.requests[1].messages[0].content
     assert "侦察报告: runner 实际结构" in adapter.requests[1].messages[1].content
 
 
-def test_recon_failure_degrades_gracefully(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_recon_failure_degrades_gracefully(tmp_path) -> None:
     adapter = MockAdapter([RuntimeError("recon down"), plan_json(step_count=1), "done"])
     runner = _runner(tmp_path, adapter)
-    asyncio.run(runner.run("重构 runner"))
-    assert runner.status == PlanStatus.COMPLETED
+    await run_with_approval(runner, "重构 runner")
+    assert runner.status == PlanPhase.COMPLETED
     assert "侦察失败: recon down" in adapter.requests[1].messages[1].content
 
 

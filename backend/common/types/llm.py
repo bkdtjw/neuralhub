@@ -29,12 +29,14 @@ class ProviderConfig(BaseModel):
     prompt_cache_retention: Literal["in_memory", "24h"] | None = None
     extra_body: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
+    roles: str = ""
 
 
 class LLMRequest(BaseModel):
     model: str
     messages: list[Message]
     tools: list[ToolDefinition] | None = None
+    tool_choice: str | dict[str, Any] | None = None
     temperature: float = 0.7
     max_tokens: int = 16384
     prompt_cache_key: str = ""

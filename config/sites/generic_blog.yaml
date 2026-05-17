@@ -1,0 +1,12 @@
+name: generic_blog
+domain: example.com
+entry_url: https://example.com/
+probe_url: https://example.com/
+wait_until: domcontentloaded
+timeout_ms: 15000
+content_selectors:
+  - body
+title_selectors:
+  - title
+image_min_width: 200
+image_min_height: 200

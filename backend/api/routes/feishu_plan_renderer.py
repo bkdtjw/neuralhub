@@ -18,10 +18,14 @@ class _StepState:
 class FeishuPlanRenderer(SilentPlanRenderer):
     """Updates one Feishu interactive card through the plan lifecycle."""
 
-    def __init__(self, feishu_client: FeishuClient, chat_id: str) -> None:
+    def __init__(
+        self, feishu_client: FeishuClient, chat_id: str, owner_id: str = "", session_id: str = ""
+    ) -> None:
         super().__init__()
         self._client = feishu_client
         self._chat_id = chat_id
+        self._owner_id = owner_id
+        self._session_id = session_id or f"feishu-{chat_id}"
         self._message_id: str | None = None
         self._plan_name = ""
         self._step_states: list[_StepState] = []
@@ -51,11 +55,7 @@ class FeishuPlanRenderer(SilentPlanRenderer):
         await self._update_card(show_buttons=False, status_text="执行中")
 
     async def on_step_done(
-        self,
-        step_id: int,
-        title: str,
-        duration_s: float,
-        output_summary: str,
+        self, step_id: int, title: str, duration_s: float, output_summary: str
     ) -> None:
         await super().on_step_done(step_id, title, duration_s, output_summary)
         self._update_step(
@@ -72,10 +72,7 @@ class FeishuPlanRenderer(SilentPlanRenderer):
         await self._update_card(show_buttons=False, status_text="执行中")
 
     async def on_steps_updated(
-        self,
-        plan_name: str,
-        steps: list[dict],
-        todo_steps: list[dict],
+        self, plan_name: str, steps: list[dict], todo_steps: list[dict]
     ) -> None:
         await super().on_steps_updated(plan_name, steps, todo_steps)
         self._step_states = [
@@ -96,11 +93,7 @@ class FeishuPlanRenderer(SilentPlanRenderer):
         await self._update_card(False, f"完成 ({done}/{len(self._step_states)})")
 
     async def on_plan_partial_failed(
-        self,
-        plan_name: str,
-        todo_state: TodoState,
-        done: int,
-        failed: int,
+        self, plan_name: str, todo_state: TodoState, done: int, failed: int
     ) -> None:
         await super().on_plan_partial_failed(plan_name, todo_state, done, failed)
         self._final = True
@@ -183,6 +176,8 @@ class FeishuPlanRenderer(SilentPlanRenderer):
             "action_type": action,
             "plan_name": self._plan_name,
             "chat_id": self._chat_id,
+            "owner_id": self._owner_id,
+            "session_id": self._session_id,
         }
 
 

@@ -47,7 +47,13 @@ class WsPlanRenderer(SilentPlanRenderer):
             for step in plan.steps
         ]
         await self._send_safe(
-            {"type": "plan_created", "plan_name": plan_name, "goal": plan.goal, "steps": steps}
+            {
+                "type": "plan_created",
+                "plan_name": plan_name,
+                "goal": plan.goal,
+                "steps": steps,
+                "awaiting_approval": True,
+            }
         )
 
     async def on_plan_approved(self, plan_name: str) -> None:
@@ -171,6 +177,7 @@ async def create_plan_runner(
             renderer=WsPlanRenderer(send_message),
             task_queue=task_queue,
             event_handler=lambda event: send_message(event_to_ws_message(event)),
+            owner_id=session_id,
         )
         if not isinstance(runner, PlanExecuteRunner):
             raise AgentError(
@@ -213,4 +220,31 @@ async def run_plan_loop(
                 pass
 
 
-__all__ = ["WsPlanRenderer", "create_plan_runner", "run_plan_loop"]
+async def run_plan_resume_loop(
+    runner: PlanExecuteRunner,
+    send_message: Callable[[dict[str, Any]], Awaitable[None]],
+    session_id: str,
+    store: SessionStore | None,
+) -> None:
+    summary: Message | None = None
+    try:
+        await runner.resume_run()
+        summary = runner.build_exit_summary()
+        await send_message({"type": "done", "message": serialize_message_for_client(summary)})
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await send_message({"type": "error", "message": str(exc)})
+        except Exception:
+            return
+    finally:
+        if store is not None:
+            try:
+                summary = summary or runner.build_exit_summary()
+                await store.add_messages(session_id, [summary])
+            except Exception:
+                pass
+
+
+__all__ = ["WsPlanRenderer", "create_plan_runner", "run_plan_loop", "run_plan_resume_loop"]

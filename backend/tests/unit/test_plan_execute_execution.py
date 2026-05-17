@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from backend.common.errors import AgentError
 from backend.common.types import (
     LLMResponse,
@@ -11,10 +13,10 @@ from backend.common.types import (
     ToolParameterSchema,
     ToolResult,
 )
-from backend.core.s01_agent_loop import PlanExecuteRunner, PlanStatus, PlanStore, TodoStore
+from backend.core.s01_agent_loop import PlanExecuteRunner, PlanPhase, PlanStore, TodoStore
 from backend.core.s01_agent_loop.plan_execution_support import OUTPUT_SUMMARY_LIMIT
 from backend.core.s02_tools import ToolRegistry
-from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json
+from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json, run_with_approval
 
 
 def _runner(
@@ -57,22 +59,24 @@ def _tool_call_response(path: str = "backend/core/demo.py") -> LLMResponse:
     )
 
 
-def test_runner_executes_steps_with_agent_loop(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_executes_steps_with_agent_loop(tmp_path) -> None:
     adapter = MockAdapter(["侦察报告", plan_json(step_count=2), "步骤1完成", "步骤2完成"])
     runner = _runner(tmp_path, adapter)
-    asyncio.run(runner.run("test"))
-    assert runner.status == PlanStatus.COMPLETED
+    await run_with_approval(runner, "test")
+    assert runner.status == PlanPhase.COMPLETED
     assert runner._todo_state is not None
     assert all(step.status == "done" for step in runner._todo_state.steps)
     assert all(step.duration_s > 0 for step in runner._todo_state.steps)
 
 
-def test_extract_context_from_step(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_extract_context_from_step(tmp_path) -> None:
     adapter = MockAdapter(
         ["侦察报告", plan_json(step_count=1), _tool_call_response(), "最终摘要" * 1200]
     )
     runner = _runner(tmp_path, adapter, _registry_with_reader())
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     step = runner._todo_state.steps[0]
     assert step.files_touched == ["backend/core/demo.py"]
     assert step.key_findings == ["关键发现第一行"]
@@ -80,29 +84,32 @@ def test_extract_context_from_step(tmp_path) -> None:
     assert len(step.output_summary) == OUTPUT_SUMMARY_LIMIT
 
 
-def test_step_context_passed_to_next_step(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_step_context_passed_to_next_step(tmp_path) -> None:
     adapter = MockAdapter(["侦察报告", plan_json(step_count=2), "FIRST_SUMMARY", "SECOND_SUMMARY"])
     runner = _runner(tmp_path, adapter)
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     second_step_prompt = "\n".join(message.content for message in adapter.requests[3].messages)
     assert "FIRST_SUMMARY" in second_step_prompt
 
 
-def test_runner_step_failure_continues(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_step_failure_continues(tmp_path) -> None:
     adapter = MockAdapter(
         ["侦察报告", plan_json(step_count=3), "done1", AgentError("STEP_FAILED", "boom"), "done3"]
     )
     runner = _runner(tmp_path, adapter)
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     statuses = [step.status for step in runner._todo_state.steps]
     assert statuses == ["done", "failed", "done"]
-    assert runner.status == PlanStatus.PARTIAL_FAILED
+    assert runner.status == PlanPhase.PARTIAL_FAILED
     summary = runner.build_exit_summary().content
     assert "❌ Step 2" in summary
     assert "boom" in summary
 
 
-def test_runner_step_timeout(tmp_path, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_runner_step_timeout(tmp_path, monkeypatch) -> None:
     import backend.core.s01_agent_loop.plan_execute_runner_steps as steps_module
 
     class TimeoutAdapter(MockAdapter):
@@ -113,17 +120,18 @@ def test_runner_step_timeout(tmp_path, monkeypatch) -> None:
             if len(self.requests) == 2:
                 return LLMResponse(content=plan_json(step_count=2))
             if len(self.requests) == 3:
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.1)
             return LLMResponse(content="done")
 
-    monkeypatch.setattr(steps_module, "STEP_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(steps_module, "STEP_TIMEOUT_SECONDS", 0.05)
     runner = _runner(tmp_path, TimeoutAdapter())
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     assert [step.status for step in runner._todo_state.steps] == ["failed", "done"]
     assert runner._todo_state.steps[0].output_summary == "步骤执行超时"
 
 
-def test_sync_rereads_plan_from_file(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_sync_rereads_plan_from_checkpoint_state(tmp_path) -> None:
     plan = json.dumps(
         {
             "goal": "sync",
@@ -143,19 +151,19 @@ def test_sync_rereads_plan_from_file(tmp_path) -> None:
     async def edit_plan_after_first(step) -> None:
         await original_execute(step)
         if step.id == 1:
-            path = tmp_path / "plans" / f"{runner.plan_name}.md"
-            path.write_text(
-                path.read_text(encoding="utf-8").replace("原始第二步描述", "手动修改后的描述"),
-                encoding="utf-8",
-            )
+            updated = runner._state.plan.model_copy(deep=True)
+            updated.steps[1].description = "手动修改后的描述"
+            runner._state.plan = updated
+            runner._persist_state()
 
     runner._execute_step = edit_plan_after_first
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     second_prompt = "\n".join(message.content for message in adapter.requests[3].messages)
     assert "手动修改后的描述" in second_prompt
 
 
-def test_cancel_preserves_completed_context(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_cancel_preserves_completed_context(tmp_path) -> None:
     adapter = MockAdapter(
         [
             "侦察报告",
@@ -174,7 +182,7 @@ def test_cancel_preserves_completed_context(tmp_path) -> None:
             runner.cancel()
 
     runner._execute_step = cancel_after_second
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     summary = runner.build_exit_summary().content
     assert "✅" in summary
     assert "⏭" in summary

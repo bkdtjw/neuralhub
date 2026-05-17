@@ -33,6 +33,8 @@ def build_payload(
     }
     if request.tools:
         payload["tools"] = to_openai_tools(request.tools)
+    if request.tool_choice is not None:
+        payload["tool_choice"] = "required" if request.tool_choice == "any" else request.tool_choice
     if stream:
         payload["stream"] = True
     if extra_body:

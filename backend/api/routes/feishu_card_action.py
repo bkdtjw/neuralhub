@@ -16,6 +16,13 @@ from backend.config.settings import settings as app_settings
 from backend.core.s07_task_system import TaskExecutionError
 from backend.schemas.feishu import FeishuCardActionPayload
 
+from .feishu_card_approval import (
+    handle_plan_approve,
+    handle_plan_cancel,
+    handle_tool_approve,
+    handle_tool_reject,
+)
+
 logger = get_logger(component="feishu_card_action")
 
 router = APIRouter(prefix="/api/feishu", tags=["feishu"])
@@ -53,32 +60,6 @@ def set_task_executor(executor: Any) -> None:
 def _action_type(payload: FeishuCardActionPayload) -> str:
     value = payload.action.value
     return value.action_type or str(getattr(value, "action", "") or "")
-
-
-def _get_handler() -> Any:
-    try:
-        from backend.api.routes import feishu
-
-        return getattr(feishu, "_handler", None)
-    except Exception:
-        return None
-
-
-async def _handle_plan_approve(payload: FeishuCardActionPayload) -> dict[str, Any]:
-    plan_name = str(getattr(payload.action.value, "plan_name", "") or "")
-    return {"toast": {"type": "info", "content": f"计划 {plan_name} 已确认"}}
-
-
-async def _handle_plan_cancel(payload: FeishuCardActionPayload) -> dict[str, Any]:
-    value = payload.action.value
-    plan_name = str(getattr(value, "plan_name", "") or "")
-    chat_id = str(getattr(value, "chat_id", "") or getattr(payload, "open_chat_id", "") or "")
-    handler = _get_handler()
-    cancelled = bool(
-        handler and getattr(handler, "cancel_plan", lambda *_: False)(chat_id, plan_name)
-    )
-    content = f"计划 {plan_name} 已取消" if cancelled else f"计划 {plan_name} 未找到或已结束"
-    return {"toast": {"type": "warning", "content": content}}
 
 
 async def _handle_rerun(payload: FeishuCardActionPayload) -> dict[str, Any]:
@@ -143,8 +124,10 @@ async def _background_rerun(task_id: str, task_name: str) -> None:
 
 # Register handlers
 dispatcher.register("rerun", _handle_rerun)
-dispatcher.register("plan_approve", _handle_plan_approve)
-dispatcher.register("plan_cancel", _handle_plan_cancel)
+dispatcher.register("plan_approve", handle_plan_approve)
+dispatcher.register("plan_cancel", handle_plan_cancel)
+dispatcher.register("tool_approve", handle_tool_approve)
+dispatcher.register("tool_reject", handle_tool_reject)
 
 
 def _verify_signature(body: bytes, timestamp: str, signature: str) -> bool:
@@ -162,18 +145,25 @@ def _verify_signature(body: bytes, timestamp: str, signature: str) -> bool:
 
 @router.post("/card_action")
 async def card_action(request: Request) -> dict[str, Any]:
+    return await _handle_card_action_request(request)
+
+
+@router.post("/plan_approval")
+async def plan_approval(request: Request) -> dict[str, Any]:
+    return await _handle_card_action_request(request)
+
+
+@router.post("/tool_approval")
+async def tool_approval(request: Request) -> dict[str, Any]:
+    return await _handle_card_action_request(request)
+
+
+async def _handle_card_action_request(request: Request) -> dict[str, Any]:
     body = await request.body()
     try:
         data = json.loads(body)
     except (json.JSONDecodeError, TypeError):
         return {}
-
-    # Debug: dump raw payload to file
-    import pathlib
-
-    pathlib.Path("/tmp/card_action_debug.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2)
-    )
 
     # Challenge verification (Feishu sends this when configuring callback URL)
     if data.get("type") == "url_verification":
@@ -197,7 +187,7 @@ async def card_action(request: Request) -> dict[str, Any]:
         result = await dispatcher.dispatch(payload)
         logger.info(
             "feishu_card_action_dispatched",
-            action_type=payload.action.value.action_type,
+            action_type=_action_type(payload),
             open_id=payload.open_id,
         )
         return result

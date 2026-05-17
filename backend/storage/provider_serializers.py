@@ -35,6 +35,7 @@ def to_provider_record(config: ProviderConfig) -> ProviderRecord:
         extra_body_json=_dump_json(config.extra_body),
         is_default=config.is_default,
         enabled=config.enabled,
+        roles=config.roles,
     )
 
 
@@ -55,6 +56,7 @@ def to_provider_config(record: ProviderRecord) -> ProviderConfig:
         extra_body=_load_dict(record.extra_body_json),
         is_default=record.is_default,
         enabled=record.enabled,
+        roles=record.roles,
     )
 
 

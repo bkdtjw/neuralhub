@@ -52,6 +52,7 @@ def register_builtin_tools(
     event_handler: AgentEventHandler | None = None,
     is_sub_agent: bool = False,
     parent_task_id: str = "",
+    include_internal_product_tools: bool = True,
 ) -> None:
     """根据权限模式注册不同的工具集。"""
     tools = (
@@ -160,7 +161,9 @@ def register_builtin_tools(
                             or os.environ.get("TWITTER_COOKIES_FILE", "twitter_cookies.json"),
                         ),
                         youtube_api_key=resolved_youtube_api_key,
-                        youtube_proxy_url=youtube_proxy_url or os.environ.get("YOUTUBE_PROXY_URL", ""),
+                        youtube_proxy_url=(
+                            youtube_proxy_url or os.environ.get("YOUTUBE_PROXY_URL", "")
+                        ),
                     )
                 )
             )
@@ -172,12 +175,78 @@ def register_builtin_tools(
     if feishu_url:
         tools.append(create_feishu_notify_tool(feishu_url, resolved_feishu_secret or None))
 
+    try:
+        from .product_coupon_lookup import (
+            ProductCouponLookupConfig,
+            create_product_coupon_lookup_tool,
+        )
+        from .product_search import create_product_search_tool
+
+        tools.append(
+            create_product_search_tool(
+                appkey=app_settings.zhetaoke_app_key,
+                sid=app_settings.zhetaoke_tb_sid,
+                pid=app_settings.zhetaoke_tb_pid,
+            )
+        )
+        tools.append(
+            create_product_coupon_lookup_tool(
+                ProductCouponLookupConfig(
+                    zhetaoke_appkey=app_settings.zhetaoke_app_key,
+                    zhetaoke_sid=app_settings.zhetaoke_tb_sid,
+                    zhetaoke_pid=app_settings.zhetaoke_tb_pid,
+                    jd_app_key=app_settings.jd_union_app_key,
+                    jd_app_secret=app_settings.jd_union_app_secret,
+                    jd_access_token=app_settings.jd_union_access_token,
+                )
+            )
+        )
+        if include_internal_product_tools:
+            from .jd_union import create_jd_union_search_tool
+            from .zhetaoke import create_zhetaoke_product_detail_tool
+            from .zhetaoke_brand import create_zhetaoke_brand_products_tool
+            from .zhetaoke_search import create_zhetaoke_taobao_search_tool
+
+            tools.append(
+                create_jd_union_search_tool(
+                    app_key=app_settings.jd_union_app_key,
+                    app_secret=app_settings.jd_union_app_secret,
+                    access_token=app_settings.jd_union_access_token,
+                )
+            )
+            tools.append(create_zhetaoke_product_detail_tool(appkey=app_settings.zhetaoke_app_key))
+            tools.append(
+                create_zhetaoke_taobao_search_tool(
+                    appkey=app_settings.zhetaoke_app_key,
+                    sid=app_settings.zhetaoke_tb_sid,
+                    pid=app_settings.zhetaoke_tb_pid,
+                )
+            )
+            tools.append(
+                create_zhetaoke_brand_products_tool(
+                    appkey=app_settings.zhetaoke_app_key,
+                    sid=app_settings.zhetaoke_tb_sid,
+                    pid=app_settings.zhetaoke_tb_pid,
+                )
+            )
+    except ImportError:
+        pass
+
+    try:
+        from backend.adapters.role_router import RoleRouter
+
+        from .browser_agent import create_browse_web_tool
+
+        tools.append(create_browse_web_tool(RoleRouter()))
+    except ImportError:
+        pass
+
     # 灵犀金融数据Skills
     try:
         from .lingxi import (
             create_lingxi_financial_search_tool,
-            create_lingxi_realtime_marketdata_tool,
             create_lingxi_ranklist_tool,
+            create_lingxi_realtime_marketdata_tool,
             create_lingxi_smart_stock_selection_tool,
         )
 

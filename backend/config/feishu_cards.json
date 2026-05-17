@@ -2,7 +2,7 @@
   "cards": {
     "task_execution_report": {
       "template_id": "AAqeVWT770Gxw",
-      "template_version": "1.0.9",
+      "template_version": "1.0.11",
       "description": "定时任务执行报告卡片，展示任务执行状态、摘要、统计数据和执行详情",
       "trigger_tools": [],
       "variables": {
@@ -30,6 +30,11 @@
           "type": "string",
           "required": true,
           "description": "本次任务执行中的工具调用次数"
+        },
+        "success_count": {
+          "type": "string",
+          "required": true,
+          "description": "本次任务执行中成功返回的工具调用次数"
         },
         "trigger_type": {
           "type": "string",

@@ -21,6 +21,7 @@ AgentEventType = Literal[
     "message",
     "tool_call",
     "tool_result",
+    "tool_approval_required",
     "security_reject",
     "sub_agent_spawned",
     "sub_agent_completed",
@@ -49,6 +50,7 @@ class AgentConfig(BaseModel):
     tools: list[str] = Field(default_factory=list)
     max_iterations: int = 20
     max_consecutive_tool_failures: int = 3
+    timeout_seconds: float = 300.0
 
 
 class AgentEvent(BaseModel):

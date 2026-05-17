@@ -4,6 +4,7 @@ from .models import NotifyConfig, OutputConfig, ScheduledTask, TaskStoreData
 
 __all__ = [
     "NotifyConfig",
+    "CronScheduler",
     "OutputConfig",
     "ScheduledTask",
     "TaskExecutor",
@@ -20,6 +21,10 @@ def __getattr__(name: str) -> object:
         from .executor import TaskExecutor
 
         return TaskExecutor
+    if name == "CronScheduler":
+        from .cron_scheduler import CronScheduler
+
+        return CronScheduler
     if name == "TaskExecutorDeps":
         from .executor_models import TaskExecutorDeps
 

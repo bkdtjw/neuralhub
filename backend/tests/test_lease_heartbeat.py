@@ -97,7 +97,7 @@ async def test_recovery_with_checkpoint_restores_messages(
     assert reclaimed is not None
     loop, restored = await _build_sub_agent_loop(reclaimed, Runtime())
     assert restored is True
-    assert [message.content for message in loop._messages] == ["s", "old input"]  # noqa: SLF001
+    assert [message.content for message in loop.messages] == ["s", "old input"]
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_recovery_without_checkpoint_runs_from_start(queue: TaskQueue) -> 
     assert reclaimed is not None
     loop, restored = await _build_sub_agent_loop(reclaimed, Runtime())
     assert restored is False
-    assert loop._messages == []  # noqa: SLF001
+    assert loop.messages == []
 
 
 @pytest.mark.asyncio

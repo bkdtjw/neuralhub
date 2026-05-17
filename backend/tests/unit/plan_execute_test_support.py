@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 from backend.adapters.base import LLMAdapter
 from backend.common.types import LLMRequest, LLMResponse, StreamChunk
@@ -83,3 +85,34 @@ class MockAdapter(LLMAdapter):
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         if False:
             yield StreamChunk(type="done")
+
+
+async def approve_when_awaiting(
+    runner: Any,
+    task: asyncio.Task[Any] | None = None,
+    timeout: float = 5.0,
+) -> None:
+    from backend.core.s01_agent_loop import PlanPhase
+
+    attempts = max(int(timeout / 0.01), 1)
+    for _ in range(attempts):
+        if getattr(runner, "phase", None) == PlanPhase.AWAITING_APPROVAL:
+            runner.approve()
+            return
+        if task is not None and task.done():
+            return
+        await asyncio.sleep(0.01)
+    if task is None or not task.done():
+        raise AssertionError("runner did not enter awaiting approval")
+
+
+async def run_with_approval(runner: Any, message: str) -> Any:
+    task = asyncio.create_task(runner.run(message))
+    await approve_when_awaiting(runner, task)
+    return await task
+
+
+async def resume_with_approval(runner: Any) -> Any:
+    task = asyncio.create_task(runner.resume_run())
+    await approve_when_awaiting(runner, task)
+    return await task

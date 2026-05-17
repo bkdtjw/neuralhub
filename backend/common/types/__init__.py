@@ -1,7 +1,16 @@
 from .agent import AgentConfig, AgentEvent, AgentEventHandler, AgentEventType, AgentStatus
 from .llm import LLMRequest, LLMResponse, LLMUsage, ProviderConfig, ProviderType
 from .mcp import MCPServerConfig, MCPServerStatus, MCPToolInfo, MCPToolResult
-from .message import FileDiff, Message, Role, StreamChunk, ToolCall, ToolResult, generate_id
+from .message import (
+    FileDiff,
+    Message,
+    Role,
+    StreamChunk,
+    ToolArtifact,
+    ToolCall,
+    ToolResult,
+    generate_id,
+)
 from .security import SecurityPolicy, SignedToolCall
 from .session import Session, SessionConfig, SessionStatus
 from .sub_agent import (
@@ -37,6 +46,7 @@ __all__ = [
     "LLMResponse",
     "Role",
     "FileDiff",
+    "ToolArtifact",
     "ToolCall",
     "ToolResult",
     "Message",

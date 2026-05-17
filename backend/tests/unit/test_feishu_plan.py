@@ -9,6 +9,7 @@ import pytest
 from backend.api.routes.feishu_handler import FeishuMessageHandler
 from backend.api.routes.feishu_plan_renderer import FeishuPlanRenderer
 from backend.api.routes.feishu_plan_support import _plan_result_text
+from backend.api.routes.feishu_tool_approval import build_tool_approval_card
 from backend.common.types import Message, ProviderConfig, ProviderType
 from backend.core.s01_agent_loop import ExecutionPlan, PlanStep, TodoState, TodoStep
 from backend.schemas.feishu import FeishuCardAction, FeishuCardActionPayload, FeishuCardActionValue
@@ -102,6 +103,7 @@ async def test_feishu_renderer_sends_initial_card_with_buttons() -> None:
     assert renderer.message_id == "om_card_1"
     assert client.send_card_count == 1
     assert action["actions"][0]["value"]["plan_name"] == "test-plan"
+    assert action["actions"][0]["value"]["session_id"] == "feishu-chat_123"
     assert action["actions"][1]["value"]["action"] == "plan_cancel"
 
 
@@ -141,23 +143,83 @@ async def test_feishu_renderer_final_cards_and_failure_silent() -> None:
 
 @pytest.mark.asyncio
 async def test_plan_card_callbacks(monkeypatch: pytest.MonkeyPatch) -> None:
-    from backend.api.routes import feishu_card_action
+    from backend.api.routes import feishu_card_action, feishu_card_approval
 
+    fake_handler = MagicMock()
+    fake_handler.approve_plan.return_value = True
+    fake_handler.reject_plan.return_value = True
+    fake_handler.cancel_plan.return_value = True
+    monkeypatch.setattr(feishu_card_approval, "_get_handler", lambda: fake_handler)
     payload = FeishuCardActionPayload(
-        action=FeishuCardAction(value=FeishuCardActionValue(action="plan_approve", plan_name="p1")),
+        open_id="ou_1",
+        action=FeishuCardAction(
+            value=FeishuCardActionValue(
+                action="plan_approve",
+                plan_name="p1",
+                chat_id="oc_1",
+                owner_id="ou_1",
+            )
+        ),
     )
     assert (await feishu_card_action.dispatcher.dispatch(payload))["toast"]["type"] == "info"
-    fake_handler = MagicMock()
-    fake_handler.cancel_plan.return_value = True
-    monkeypatch.setattr(feishu_card_action, "_get_handler", lambda: fake_handler)
+    fake_handler.approve_plan.assert_called_once_with("oc_1", "p1", "ou_1")
     cancel_payload = FeishuCardActionPayload(
+        open_id="ou_1",
         action=FeishuCardAction(
-            value=FeishuCardActionValue(action="plan_cancel", plan_name="p1", chat_id="oc_1"),
+            value=FeishuCardActionValue(
+                action="plan_cancel",
+                plan_name="p1",
+                chat_id="oc_1",
+                owner_id="ou_1",
+            ),
         ),
     )
     result = await feishu_card_action.dispatcher.dispatch(cancel_payload)
-    fake_handler.cancel_plan.assert_called_once_with("oc_1", "p1")
+    fake_handler.reject_plan.assert_called_once_with("oc_1", "p1", "ou_1")
     assert result["toast"]["type"] == "warning"
+
+
+@pytest.mark.asyncio
+async def test_tool_card_callbacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.api.routes import feishu_card_action, feishu_card_approval
+
+    fake_handler = MagicMock()
+    fake_handler.resolve_tool_call.return_value = True
+    monkeypatch.setattr(feishu_card_approval, "_get_handler", lambda: fake_handler)
+    payload = FeishuCardActionPayload(
+        open_id="ou_1",
+        action=FeishuCardAction(
+            value=FeishuCardActionValue(
+                action="tool_approve",
+                tool_call_id="call_1",
+                tool_name="send_email",
+                chat_id="oc_1",
+                owner_id="ou_1",
+            )
+        ),
+    )
+    result = await feishu_card_action.dispatcher.dispatch(payload)
+    fake_handler.resolve_tool_call.assert_called_once_with("oc_1", "call_1", True, "ou_1")
+    assert result["toast"]["type"] == "info"
+    assert "card" not in result
+
+
+def test_tool_approval_card_includes_review_reason() -> None:
+    card = build_tool_approval_card(
+        [
+            {
+                "id": "call_1",
+                "name": "send_email",
+                "arguments": {"to": "all@example.com"},
+                "approval_reason": "收件人范围不一致",
+            }
+        ],
+        chat_id="oc_1",
+        owner_id="ou_1",
+        session_id="feishu-oc_1",
+    )
+    assert "收件人范围不一致" in card["elements"][0]["content"]
+    assert card["elements"][1]["actions"][0]["value"]["tool_call_id"] == "call_1"
 
 
 @pytest.mark.asyncio
@@ -165,7 +227,7 @@ async def test_plan_message_routing() -> None:
     handler = _handler()
     handler._handle_plan_message = AsyncMock()
     await handler.handle_message(_event("/plan 重构 s07"))
-    handler._handle_plan_message.assert_called_once_with("oc_1", "重构 s07", "")
+    handler._handle_plan_message.assert_called_once_with("oc_1", "重构 s07", "", "oc_1")
 
 
 @pytest.mark.asyncio

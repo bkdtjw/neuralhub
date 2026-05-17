@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Agent Studio Cookie Sync",
+  "version": "0.1.0",
+  "permissions": ["cookies", "storage", "tabs", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}

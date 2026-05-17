@@ -9,6 +9,7 @@ import pytest
 
 from backend.api.routes.feishu_handler import FeishuMessageHandler
 from backend.common.types import AgentConfig, Message, ProviderConfig, ProviderType, Session, SessionConfig, ToolCall, ToolResult
+from backend.core.s01_agent_loop import MessageHistory
 
 from .redis_test_support import use_fake_redis
 
@@ -61,20 +62,21 @@ def _stored_session(provider_id: str) -> Session:
 class FakeLoop:
     def __init__(self) -> None:
         self._config = AgentConfig(model="loop-model", provider="loop-provider", system_prompt="fresh prompt", session_id="oc_abc")
-        self._messages: list[Message] = []
+        self.message_history = MessageHistory()
         self.messages_before_run: list[Message] = []
 
     @property
     def messages(self) -> list[Message]:
-        return list(self._messages)
+        return self.message_history.messages
 
     async def run(self, text: str) -> Message:
-        self.messages_before_run = [message.model_copy(deep=True) for message in self._messages]
-        if not self._messages and self._config.system_prompt:
-            self._messages.append(Message(role="system", content=self._config.system_prompt))
-        self._messages.append(Message(role="user", content=text))
+        messages = self.message_history.raw_messages
+        self.messages_before_run = [message.model_copy(deep=True) for message in messages]
+        if not messages and self._config.system_prompt:
+            messages.append(Message(role="system", content=self._config.system_prompt))
+        messages.append(Message(role="user", content=text))
         tool_call = ToolCall(id="call_echo", name="echo", arguments={"text": text})
-        self._messages.append(
+        messages.append(
             Message(
                 role="assistant",
                 content="",
@@ -82,9 +84,9 @@ class FakeLoop:
                 provider_metadata={"thinking_blocks": [{"type": "thinking", "thinking": "step"}]},
             )
         )
-        self._messages.append(Message(role="tool", content="", tool_results=[ToolResult(tool_call_id="call_echo", output="ok")]))
+        messages.append(Message(role="tool", content="", tool_results=[ToolResult(tool_call_id="call_echo", output="ok")]))
         final = Message(role="assistant", content=f"final:{text}")
-        self._messages.append(final)
+        messages.append(final)
         return final
 
 
@@ -139,7 +141,9 @@ async def test_handle_message_refreshes_stale_cached_loop_from_store() -> None:
     handler._store.add_messages = AsyncMock()
     stale_loop = FakeLoop()
     stale_loop._config.provider = provider.id
-    stale_loop._messages = [Message(role="system", content="stale prompt"), Message(role="user", content="stale turn")]
+    stale_loop.message_history.restore(
+        [Message(role="system", content="stale prompt"), Message(role="user", content="stale turn")]
+    )
     handler._sessions["oc_abc"] = stale_loop
 
     with patch("backend.api.routes.feishu_handler.build_agent_loop", new=AsyncMock()) as mock_build:

@@ -52,6 +52,7 @@ def _to_response(config: ProviderConfig) -> ProviderResponse:
         extra_body=config.extra_body,
         is_default=config.is_default,
         enabled=config.enabled,
+        roles=config.roles,
     )
 
 

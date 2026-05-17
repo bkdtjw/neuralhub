@@ -25,7 +25,7 @@ def test_convergence_prompt_injected_at_threshold() -> None:
     for index in range(5):
         monitor.on_event(_tool_result(index))
     monitor.on_event(_flush_event())
-    assert any("[系统提醒]" in message.content for message in loop._messages)
+    assert any("[系统提醒]" in message.content for message in loop.messages)
 
 
 def test_convergence_escalation() -> None:
@@ -33,7 +33,7 @@ def test_convergence_escalation() -> None:
     for index in range(10):
         monitor.on_event(_tool_result(index))
     monitor.on_event(_flush_event())
-    content = "\n".join(message.content for message in loop._messages)
+    content = "\n".join(message.content for message in loop.messages)
     assert "[系统提醒]" in content
     assert "[系统警告]" in content
     assert "[系统强制]" in content
@@ -44,4 +44,4 @@ def test_no_convergence_prompt_under_threshold() -> None:
     for index in range(3):
         monitor.on_event(_tool_result(index))
     monitor.on_event(_flush_event())
-    assert not any("[系统提醒]" in message.content for message in loop._messages)
+    assert not any("[系统提醒]" in message.content for message in loop.messages)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -16,13 +17,20 @@ from backend.config.settings import settings
 from backend.storage.models import Base
 
 SessionFactory = async_sessionmaker[AsyncSession]
+_PROVIDER_ROLES_MIGRATION_SQL = (
+    "ALTER TABLE providers "
+    "ADD COLUMN IF NOT EXISTS roles VARCHAR(200) NOT NULL DEFAULT ''"
+)
 
 
 def build_session_factory(database_url: str) -> tuple[AsyncEngine, SessionFactory]:
     try:
         backend_name = make_url(database_url).get_backend_name()
     except Exception as exc:  # noqa: BLE001
-        raise AgentError("DB_UNSUPPORTED_BACKEND", f"Unsupported database URL: {database_url}") from exc
+        raise AgentError(
+            "DB_UNSUPPORTED_BACKEND",
+            f"Unsupported database URL: {database_url}",
+        ) from exc
     if not backend_name.startswith("postgresql"):
         raise AgentError("DB_UNSUPPORTED_BACKEND", f"Unsupported database backend: {backend_name}")
     engine = create_async_engine(database_url, **_build_postgres_engine_kwargs())
@@ -47,6 +55,7 @@ async def init_db(target_engine: AsyncEngine | None = None) -> None:
     try:
         async with resolved_engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            await connection.execute(text(_PROVIDER_ROLES_MIGRATION_SQL))
     except Exception as exc:  # noqa: BLE001
         raise AgentError("DB_INIT_ERROR", str(exc)) from exc
 

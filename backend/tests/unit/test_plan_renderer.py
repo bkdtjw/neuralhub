@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 from typing import get_args
 
+import pytest
+
 from backend.common.types.agent import AgentEventType
 from backend.core.s01_agent_loop import (
     ExecutionPlan,
     PlanExecuteRunner,
     PlanRenderer,
-    PlanStatus,
+    PlanPhase,
     PlanStep,
     PlanStore,
     SilentPlanRenderer,
@@ -17,7 +19,7 @@ from backend.core.s01_agent_loop import (
     TodoStore,
 )
 from backend.core.s02_tools import ToolRegistry
-from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json
+from backend.tests.unit.plan_execute_test_support import MockAdapter, plan_json, run_with_approval
 
 
 def _plan(step_count: int = 2) -> ExecutionPlan:
@@ -98,7 +100,8 @@ def test_silent_renderer_plan_cancelled() -> None:
     asyncio.run(SilentPlanRenderer().on_plan_cancelled("test-plan", _todo("cancelled")))
 
 
-def test_runner_with_silent_renderer_full_lifecycle(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_with_silent_renderer_full_lifecycle(tmp_path) -> None:
     calls: list[tuple[str, object]] = []
 
     class SpyRenderer(SilentPlanRenderer):
@@ -130,7 +133,7 @@ def test_runner_with_silent_renderer_full_lifecycle(tmp_path) -> None:
             calls.append(("completed", plan_name))
 
     runner = _runner(tmp_path, SpyRenderer())
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
 
     assert ("recon_start", "test") in calls
     assert any(call[0] == "recon_done" for call in calls)
@@ -141,17 +144,19 @@ def test_runner_with_silent_renderer_full_lifecycle(tmp_path) -> None:
     assert ("completed", runner.plan_name) in calls
 
 
-def test_runner_renderer_failure_does_not_block(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_runner_renderer_failure_does_not_block(tmp_path) -> None:
     class BrokenRenderer(SilentPlanRenderer):
         async def on_step_done(self, *args: object) -> None:
             raise RuntimeError("renderer crash")
 
     runner = _runner(tmp_path, BrokenRenderer())
-    asyncio.run(runner.run("test"))
-    assert runner.status == PlanStatus.COMPLETED
+    await run_with_approval(runner, "test")
+    assert runner.status == PlanPhase.COMPLETED
 
 
-def test_cancel_triggers_renderer(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_cancel_triggers_renderer(tmp_path) -> None:
     calls: list[str] = []
 
     class SpyRenderer(SilentPlanRenderer):
@@ -171,7 +176,7 @@ def test_cancel_triggers_renderer(tmp_path) -> None:
             runner.cancel()
 
     runner._execute_step = cancel_after_first
-    asyncio.run(runner.run("test"))
+    await run_with_approval(runner, "test")
     assert "cancelled" in calls
 
 

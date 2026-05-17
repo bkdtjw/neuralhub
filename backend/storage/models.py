@@ -66,6 +66,7 @@ class ProviderRecord(Base):
     extra_body_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    roles: Mapped[str] = mapped_column(String(200), default="", nullable=False)
 
 
 class MCPServerRecord(Base):
@@ -120,11 +121,42 @@ class ScheduledTaskRecord(Base):
     last_run_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
+class RunTraceRecord(Base):
+    __tablename__ = "run_traces"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(100), default="", nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(50), default="", nullable=False, index=True)
+    url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    error_code: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+
+class LoginWorkflowRecord(Base):
+    __tablename__ = "login_workflows"
+
+    user_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    site_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    status: Mapped[str] = mapped_column(String(30), default="EXPIRED", nullable=False, index=True)
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_fresh_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    workflow_id: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
+    current_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_steps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 __all__ = [
     "Base",
     "MCPServerRecord",
     "MessageRecord",
     "ProviderRecord",
+    "LoginWorkflowRecord",
+    "RunTraceRecord",
     "ScheduledTaskRecord",
     "SessionRecord",
     "SubAgentTaskRecord",

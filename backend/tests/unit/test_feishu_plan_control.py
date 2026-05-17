@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.api.routes.feishu_handler import FeishuMessageHandler
-from backend.core.s01_agent_loop import PlanControlStore
+from backend.core.s01_agent_loop import PlanControlStore, PlanPhase, PlanState, UserConfigStore
 
 
 class MenuClient:
@@ -65,6 +65,28 @@ async def test_plan_pause_and_stop_menu_controls_current_runner() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dot_menu_events_and_auto_approve_toggle(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("USER_CONFIG_DIR", str(tmp_path / "user_configs"))
+    client = MenuClient()
+    handler = _handler(client)
+    runner = MagicMock()
+    handler._user_chats["ou_test"] = "oc_1"
+    handler._plan_runners["oc_1"] = runner
+    await handler.handle_menu_event("plan.pause", "ou_test")
+    runner.pause.assert_called_once_with()
+    await handler.handle_menu_event("plan.stop", "ou_test")
+    runner.cancel.assert_called_once_with()
+    await handler.handle_menu_event("tool.auto_approve", "ou_test")
+    assert UserConfigStore().get("ou_test").auto_approve_tools is True
+    assert "已开启" in json.loads(client.sent[-1][1])["text"]
+    await handler.handle_menu_event("tool.auto_approve", "ou_test")
+    assert UserConfigStore().get("ou_test").auto_approve_tools is False
+    assert "已关闭" in json.loads(client.sent[-1][1])["text"]
+
+
+@pytest.mark.asyncio
 async def test_plan_stop_menu_accepts_leading_equals() -> None:
     client = MenuClient()
     handler = _handler(client)
@@ -99,9 +121,9 @@ async def test_remote_plan_pause_uses_shared_control(
 ) -> None:
     monkeypatch.setenv("PLAN_CONTROL_DIR", str(tmp_path / "controls"))
     monkeypatch.setattr(
-        "backend.api.routes.feishu_plan_control.TodoStore",
+        "backend.api.routes.feishu_plan_control.PlanCheckpointStore",
         lambda: SimpleNamespace(
-            list_active=lambda: [SimpleNamespace(session_id="feishu-oc_1", status="executing")]
+            load_latest=lambda _session_id: SimpleNamespace(phase=PlanPhase.EXECUTING)
         ),
     )
     client = MenuClient()
@@ -118,9 +140,9 @@ async def test_remote_paused_plan_message_resumes(
 ) -> None:
     monkeypatch.setenv("PLAN_CONTROL_DIR", str(tmp_path / "controls"))
     monkeypatch.setattr(
-        "backend.api.routes.feishu_plan_control.TodoStore",
+        "backend.api.routes.feishu_plan_control.PlanCheckpointStore",
         lambda: SimpleNamespace(
-            list_active=lambda: [SimpleNamespace(session_id="feishu-oc_1", status="paused")]
+            load_latest=lambda _session_id: SimpleNamespace(phase=PlanPhase.PAUSED)
         ),
     )
     client = MenuClient()
@@ -128,3 +150,24 @@ async def test_remote_paused_plan_message_resumes(
     await handler.handle_message(_event("继续"))
     assert "已继续执行" in json.loads(client.sent[-1][1])["text"]
     assert PlanControlStore().read("feishu-oc_1").action == "resume"
+
+
+def test_remote_plan_approval_uses_shared_control(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PLAN_CONTROL_DIR", str(tmp_path / "controls"))
+    state = PlanState(
+        plan_name="p1",
+        session_id="feishu-oc_1",
+        owner_id="ou_test",
+        phase=PlanPhase.AWAITING_APPROVAL,
+    )
+    monkeypatch.setattr(
+        "backend.api.routes.feishu_plan_decision.PlanCheckpointStore",
+        lambda: SimpleNamespace(load_latest=lambda _session_id: state),
+    )
+    client = MenuClient()
+    handler = _handler(client)
+
+    assert handler.approve_plan("oc_1", "p1", "ou_test") is True
+    assert PlanControlStore().read("feishu-oc_1").action == "approve"

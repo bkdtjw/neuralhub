@@ -26,6 +26,9 @@ from backend.common.types import AgentConfig, Message
 from backend.core.s01_agent_loop import (
     AgentLoop,
     ExecutionPlan,
+    PlanCheckpointStore,
+    PlanPhase,
+    PlanState,
     PlanStep,
     PlanStore,
     TodoState,
@@ -74,6 +77,7 @@ class FakeRuntime(AgentRuntime):
             todo_store=TodoStore(),
             renderer=kwargs.get("renderer"),
             session_id=str(kwargs.get("session_id", "")),
+            owner_id=str(kwargs.get("owner_id", "unknown")),
         )
 
 
@@ -171,7 +175,14 @@ async def test_plans_list_and_plan_show(
     tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    PlanStore().save_plan("test-plan", _plan())
+    PlanCheckpointStore().save(
+        PlanState(
+            plan_name="test-plan",
+            session_id="cli",
+            phase=PlanPhase.COMPLETED,
+            plan=_plan(),
+        )
+    )
     session = _session()
     await handle_plans_list(session, _printer())
     await handle_plan_show(session, "test-plan", _printer())
@@ -184,14 +195,38 @@ async def test_handle_plan_command_writes_files_and_injects_summary(
     tmp_path: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
     session = _session(MockAdapter())
     result = await handle_command(session, parse_command("/plan 重构 s07"), _printer())
     messages = result.session.loop.messages
     assert result.should_exit is False
     assert list((tmp_path / "data" / "plans").glob("*.md"))
-    assert list((tmp_path / "data" / "todos").glob("*.json"))
+    assert list((tmp_path / "data" / "plan_checkpoints").glob("*.json"))
     assert [message.role for message in messages[-2:]] == ["user", "assistant"]
     assert "Plan:" in messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_handle_plan_command_rejects_from_cli_input(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prompts: list[str] = []
+
+    def fake_input(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return "n"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("builtins.input", fake_input)
+    adapter = MockAdapter()
+    session = _session(adapter)
+
+    result = await handle_plan_run(session, "reject this", _printer())
+
+    assert result.should_exit is False
+    assert prompts and "是否执行此计划" in prompts[0]
+    assert len(adapter.requests) == 2
+    assert "cancelled" in result.session.loop.messages[-1].content
 
 
 @pytest.mark.asyncio
