@@ -38,7 +38,7 @@ class SecurityGate:
         self._registry = registry
         self._session_key = secrets.token_bytes(32)
         self._sequence = 0
-        self._last_verified_sequence = 0
+        self._verified_sequences: set[int] = set()
 
     @property
     def session_key(self) -> bytes:
@@ -79,9 +79,9 @@ class SecurityGate:
             )
             if not hmac.compare_digest(expected, signed_call.signature):
                 return False
-            if signed_call.sequence <= self._last_verified_sequence:
+            if signed_call.sequence in self._verified_sequences:
                 return False
-            self._last_verified_sequence = signed_call.sequence
+            self._verified_sequences.add(signed_call.sequence)
             return True
         except Exception:
             return False
@@ -106,7 +106,7 @@ class SecurityGate:
 
     def reset(self) -> None:
         self._sequence = 0
-        self._last_verified_sequence = 0
+        self._verified_sequences.clear()
 
     def _reject_reason(self, tool_call: ToolCall, signed_count: int) -> str:
         if not self._registry.has(tool_call.name):

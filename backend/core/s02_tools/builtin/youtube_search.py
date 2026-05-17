@@ -45,6 +45,7 @@ def create_youtube_search_tool(
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:

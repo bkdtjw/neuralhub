@@ -15,6 +15,8 @@ from backend.common.types import (
     ToolDefinition,
 )
 
+from .message_zones import request_zone_messages
+
 
 def build_payload(
     request: LLMRequest,
@@ -27,7 +29,7 @@ def build_payload(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": request.model or default_model,
-        "messages": to_openai_messages(request.messages),
+        "messages": to_openai_messages(request_zone_messages(request, include_system=True)),
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
     }
@@ -188,13 +190,3 @@ def error_message(response: httpx.Response) -> str:
         return response.json().get("error", {}).get("message", response.text)
     except Exception:
         return response.text
-
-
-__all__ = [
-    "build_headers",
-    "build_payload",
-    "error_message",
-    "flush_tool_calls",
-    "parse_response",
-    "parse_stream_line",
-]

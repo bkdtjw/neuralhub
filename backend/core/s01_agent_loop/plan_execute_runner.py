@@ -44,6 +44,8 @@ class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecut
         agent_spec: Any | None = None,
         checkpoint_store: PlanCheckpointStore | None = None,
         owner_id: str = "unknown",
+        system_prompt: str = "",
+        skill_prompt: str = "",
     ) -> None:
         self._adapter = adapter
         self._tool_registry = tool_registry
@@ -55,6 +57,9 @@ class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecut
         self._renderer = renderer
         self._session_id = session_id or generate_id()
         self._owner_id = owner_id or "unknown"
+        self._system_prompt = system_prompt
+        self._skill_prompt = skill_prompt
+        self._steps_dir = Path(getattr(todo_store, "_base_dir", Path("data/todos"))).parent / "steps"
         self._state = PlanState(
             plan_name="", session_id=self._session_id, owner_id=self._owner_id
         )

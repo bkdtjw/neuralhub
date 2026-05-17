@@ -17,12 +17,13 @@ PLANNING_SYSTEM_PROMPT = """
 - goal: 一句话描述目标。
 - approach: 分步骤的方法描述，类型为 list[str]。
 - data_structures: 涉及的数据结构或模块设计，类型为 str，可为空字符串。
-- steps: 执行步骤列表，每步包含 step_id, title, description, tools_hint。
+- steps: 执行步骤列表，每步包含 step_id, title, description, tools_hint，可选 type。
 - version: 可省略，默认 1。
 
 	规划要求：
 	- step_id 从 1 开始连续递增。
 	- tools_hint 只能从可用工具列表中选择，例如 Read、Write、Bash、Glob、Grep。
+	- type 默认 agent_step；只有 collect_and_process / lingxi 等厚工具可直接完成时才用 script_step。
 	- 步骤数量保持在 3-8 步，不要过细也不要过粗。
 	- 每个 description 必须足够具体，让执行者不依赖额外上下文也能理解要做什么。
 	- 不要在计划中记录执行过程、结果或假设已经完成的事项。
@@ -42,7 +43,8 @@ PLANNING_SYSTEM_PROMPT = """
       "step_id": 1,
       "title": "读取调度模块",
       "description": "读取任务调度相关文件，确认公开接口和调用方。",
-      "tools_hint": ["Read", "Grep"]
+      "tools_hint": ["Read", "Grep"],
+      "type": "agent_step"
     }
   ],
   "version": 1

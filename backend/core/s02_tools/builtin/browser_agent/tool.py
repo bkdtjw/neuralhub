@@ -17,6 +17,7 @@ from backend.storage.asset_store import AssetStore
 
 from .main_agent_loop import run_browser_agent
 from .models import BrowserAgentConfig
+from .site_guides import resolve_initial_url, resolve_site_guide
 
 
 def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, ToolExecuteFn]:
@@ -53,12 +54,15 @@ def create_browse_web_tool(role_router: RoleRouter) -> tuple[ToolDefinition, Too
             if not task:
                 return ToolResult(output="task is required", is_error=True)
             max_steps = min(int(args.get("max_steps", 15) or 15), 30)
+            domain = str(args.get("domain", "") or "")
+            guide = resolve_site_guide(task, domain)
             policy = _screenshot_policy(args)
             temp_root = _new_temp_root() if policy == "core" else None
             result = await run_browser_agent(
                 BrowserAgentConfig(
                     task=task,
-                    domain=str(args.get("domain", "") or ""),
+                    domain=domain or (guide.domain if guide else ""),
+                    initial_url=resolve_initial_url(task, guide),
                     max_steps=max_steps,
                     vision_subagent_provider_id=str(args.get("vision_provider_id", "") or ""),
                     main_agent_provider_id=str(args.get("main_agent_provider_id", "") or ""),

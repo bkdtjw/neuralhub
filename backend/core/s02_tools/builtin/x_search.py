@@ -63,6 +63,7 @@ def create_x_search_tool(config: XClientConfig) -> tuple[ToolDefinition, ToolExe
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:

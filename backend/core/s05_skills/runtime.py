@@ -8,17 +8,20 @@ from pydantic import BaseModel, ConfigDict
 from backend.adapters.base import LLMAdapter
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError
-from backend.common.types import AgentConfig, AgentEventHandler, ProviderConfig
+from backend.common.types import AgentConfig, AgentEventHandler, Message, ProviderConfig
 from backend.config.settings import Settings
 from backend.core.s01_agent_loop import AgentLoop, CheckpointFn, PlanExecuteRunner, PlanRenderer
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
+from backend.core.s06_context_compression import MemoryIndex
 from backend.core.system_prompt import build_system_prompt
 from backend.core.task_queue import TaskQueue
+from backend.storage.memory_store import MemoryStore
 
 from .mcp_requirements import extract_required_mcp_servers
 from .models import AgentCategory, AgentSpec, ToolConfig
+from .on_demand_loader import OnDemandSkillLoader
 from .registry import SpecRegistry
 from .runtime_plan import create_runtime_runner
 from .runtime_support import FilteredBridge, build_runtime_registry
@@ -54,6 +57,12 @@ class AgentRuntime:
             resolved_model = resolved_model or self._deps.settings.default_model
             resolved_workspace = os.path.abspath(workspace or os.getcwd())
             adapter = await self._deps.provider_manager.get_adapter(resolved_provider.id)
+            skill_loader = OnDemandSkillLoader(self._deps.spec_registry)
+            memory_index = self._build_memory_index()
+            stable_prompt, skill_prompt = self._compose_layered_prompt(
+                resolved_workspace,
+                spec.system_prompt,
+            )
             registry = self._build_registry(
                 spec.tools,
                 spec.sub_agents.max_depth,
@@ -64,6 +73,7 @@ class AgentRuntime:
                 task_queue,
                 event_handler,
                 is_sub_agent,
+                skill_loader,
             )
             bridge = FilteredBridge(
                 MCPToolBridge(self._deps.mcp_manager, registry),
@@ -76,9 +86,7 @@ class AgentRuntime:
                 config=AgentConfig(
                     model=resolved_model,
                     provider=resolved_provider.id,
-                    system_prompt=self._compose_system_prompt(
-                        resolved_workspace, spec.system_prompt
-                    ),
+                    system_prompt=stable_prompt,
                     session_id=session_id,
                     tools=sorted(tool.name for tool in registry.list_definitions()),
                     max_iterations=spec.max_iterations,
@@ -90,6 +98,9 @@ class AgentRuntime:
                 bridge=bridge,
                 agent_spec=spec,
                 owner_id=session_id,
+                skill_loader=skill_loader,
+                memory_index=memory_index,
+                static_skill_messages=_skill_messages(skill_prompt),
             )
             return loop
         except AgentError:
@@ -216,6 +227,7 @@ class AgentRuntime:
         task_queue: TaskQueue | None,
         event_handler: AgentEventHandler | None,
         is_sub_agent: bool,
+        skill_loader: OnDemandSkillLoader | None = None,
     ) -> ToolRegistry:
         return build_runtime_registry(
             register_builtin_tools,
@@ -230,6 +242,7 @@ class AgentRuntime:
             self,
             self._deps.spec_registry,
             is_sub_agent,
+            skill_loader,
         )
 
     async def _resolve_provider(self, requested: str) -> ProviderConfig:
@@ -245,10 +258,21 @@ class AgentRuntime:
         return default_provider or providers[0]
 
     @staticmethod
+    def _compose_layered_prompt(workspace: str, spec_prompt: str) -> tuple[str, str]:
+        return build_system_prompt(workspace), spec_prompt.strip()
+
+    @staticmethod
     def _compose_system_prompt(workspace: str, spec_prompt: str) -> str:
-        return "\n\n".join(
-            part for part in [build_system_prompt(workspace), spec_prompt.strip()] if part
-        )
+        stable, dynamic = AgentRuntime._compose_layered_prompt(workspace, spec_prompt)
+        return "\n\n".join(part for part in [stable, dynamic] if part)
+
+    @staticmethod
+    def _build_memory_index() -> MemoryIndex:
+        return MemoryIndex(MemoryStore().load())
 
 
 __all__ = ["AgentRuntime", "AgentRuntimeDeps"]
+
+
+def _skill_messages(prompt: str) -> list[Message]:
+    return [Message(role="system", content=prompt)] if prompt else []

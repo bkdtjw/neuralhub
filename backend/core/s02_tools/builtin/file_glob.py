@@ -30,6 +30,7 @@ def create_glob_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
             },
             required=["pattern"],
         ),
+        side_effect=False,
     )
     root = Path(base_path).resolve()
 

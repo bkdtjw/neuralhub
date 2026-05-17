@@ -6,6 +6,7 @@ from backend.storage.database import init_db
 from backend.storage.session_store import SessionStore
 
 if TYPE_CHECKING:
+    from backend.storage.memory_store import MemoryStore
     from backend.storage.mcp_server_store import MCPServerStore
     from backend.storage.provider_store import ProviderStore
     from backend.storage.sub_agent_task_store import SubAgentTaskStore
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MCPServerStore",
+    "MemoryStore",
     "ProviderStore",
     "SessionStore",
     "SubAgentTaskStore",
@@ -26,6 +28,10 @@ def __getattr__(name: str) -> Any:
         from backend.storage.mcp_server_store import MCPServerStore
 
         return MCPServerStore
+    if name == "MemoryStore":
+        from backend.storage.memory_store import MemoryStore
+
+        return MemoryStore
     if name == "ProviderStore":
         from backend.storage.provider_store import ProviderStore
 

@@ -16,21 +16,38 @@ from backend.common.types import (
     ToolDefinition,
 )
 
+from .message_zones import request_system_prompt, request_zone_messages
+
 
 def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> dict[str, Any]:
+    system_prompt = request_system_prompt(request)
     payload: dict[str, Any] = {
         "model": request.model or default_model,
-        "messages": to_anthropic_messages(request.messages),
+        "messages": to_anthropic_messages_v2(request),
         "max_tokens": request.max_tokens,
         "temperature": request.temperature,
     }
+    if system_prompt:
+        payload["system"] = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
     if request.tools:
-        payload["tools"] = to_anthropic_tools(request.tools)
+        tools = to_anthropic_tools(request.tools)
+        tools[-1]["cache_control"] = {"type": "ephemeral"}
+        payload["tools"] = tools
     if request.tool_choice is not None:
         payload["tool_choice"] = _to_anthropic_tool_choice(request.tool_choice)
     if stream:
         payload["stream"] = True
     return payload
+
+
+def to_anthropic_messages_v2(request: LLMRequest) -> list[dict[str, Any]]:
+    return to_anthropic_messages(request_zone_messages(request, include_system=False))
 
 
 def to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
@@ -51,8 +68,9 @@ def to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
             ]
             result.append({"role": "user", "content": content})
             continue
-        text = msg.content if msg.role != "system" else f"[system] {msg.content}"
-        result.append({"role": "user", "content": [{"type": "text", "text": text}]})
+        if msg.role == "system":
+            continue
+        result.append({"role": "user", "content": [{"type": "text", "text": msg.content}]})
     return result
 
 
@@ -118,6 +136,7 @@ def parse_response(data: dict[str, Any]) -> LLMResponse:
         usage=LLMUsage(
             prompt_tokens=usage.get("input_tokens", 0),
             completion_tokens=usage.get("output_tokens", 0),
+            cached_prompt_tokens=usage.get("cache_read_input_tokens", 0),
         ),
         provider_metadata=provider_metadata,
     )
@@ -175,12 +194,3 @@ def error_message(response: httpx.Response) -> str:
         return response.json().get("error", {}).get("message", response.text)
     except Exception:
         return response.text
-
-
-__all__ = [
-    "build_headers",
-    "build_payload",
-    "error_message",
-    "parse_response",
-    "parse_stream_line",
-]

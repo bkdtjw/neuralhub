@@ -46,6 +46,13 @@ class ToolExecutor:
             }
         )
 
+    @classmethod
+    def _error_result(cls, tool_call: ToolCall, output: str) -> ToolResult:
+        return cls._finalize_result(
+            tool_call,
+            ToolResult(tool_call_id=tool_call.id, output=output, is_error=True),
+        )
+
     def list_definitions(self) -> list[ToolDefinition]:
         return self._registry.list_definitions()
 
@@ -56,14 +63,7 @@ class ToolExecutor:
         try:
             tool = self._registry.get(tool_call.name)
             if tool is None:
-                result = self._finalize_result(
-                    tool_call,
-                    ToolResult(
-                        tool_call_id=tool_call.id,
-                        output=f"Unknown tool: {tool_call.name}",
-                        is_error=True,
-                    ),
-                )
+                result = self._error_result(tool_call, f"Unknown tool: {tool_call.name}")
                 await self._log_result(tool_call, result, started_at)
                 return result
             _, executor = tool
@@ -72,21 +72,11 @@ class ToolExecutor:
                 await self._log_result(tool_call, result, started_at)
                 return result
             except Exception as exc:  # noqa: BLE001
-                result = self._finalize_result(
-                    tool_call,
-                    ToolResult(
-                        tool_call_id=tool_call.id,
-                        output=str(exc),
-                        is_error=True,
-                    ),
-                )
+                result = self._error_result(tool_call, str(exc))
                 await self._log_result(tool_call, result, started_at)
                 return result
         except Exception as exc:  # noqa: BLE001
-            result = self._finalize_result(
-                tool_call,
-                ToolResult(tool_call_id=tool_call.id, output=str(exc), is_error=True),
-            )
+            result = self._error_result(tool_call, str(exc))
             await self._log_result(tool_call, result, started_at)
             return result
 
@@ -94,35 +84,15 @@ class ToolExecutor:
         try:
             return list(await asyncio.gather(*(self.execute(call) for call in tool_calls)))
         except Exception as exc:  # noqa: BLE001
-            return [
-                self._finalize_result(
-                    call,
-                    ToolResult(tool_call_id=call.id, output=str(exc), is_error=True),
-                )
-                for call in tool_calls
-            ]
+            return [self._error_result(call, str(exc)) for call in tool_calls]
 
     async def execute_signed(self, signed_call: SignedToolCall, gate: SecurityGate) -> ToolResult:
         try:
             if not gate.verify(signed_call):
-                return self._finalize_result(
-                    signed_call.tool_call,
-                    ToolResult(
-                        tool_call_id=signed_call.tool_call.id,
-                        output="HMAC verification failed",
-                        is_error=True,
-                    ),
-                )
+                return self._error_result(signed_call.tool_call, "HMAC verification failed")
             return await self.execute(signed_call.tool_call)
         except Exception as exc:  # noqa: BLE001
-            return self._finalize_result(
-                signed_call.tool_call,
-                ToolResult(
-                    tool_call_id=signed_call.tool_call.id,
-                    output=str(exc),
-                    is_error=True,
-                ),
-            )
+            return self._error_result(signed_call.tool_call, str(exc))
 
     async def execute_signed_batch(
         self,
@@ -138,13 +108,9 @@ class ToolExecutor:
                 if gate.verify(signed_call):
                     verified.append((index, signed_call))
                     continue
-                ordered[index] = self._finalize_result(
+                ordered[index] = self._error_result(
                     signed_call.tool_call,
-                    ToolResult(
-                        tool_call_id=signed_call.tool_call.id,
-                        output="HMAC verification failed",
-                        is_error=True,
-                    ),
+                    "HMAC verification failed",
                 )
             executed = await asyncio.gather(
                 *(self.execute(signed_call.tool_call) for _, signed_call in verified),
@@ -152,28 +118,24 @@ class ToolExecutor:
             )
             for (index, signed_call), result in zip(verified, executed, strict=True):
                 if isinstance(result, Exception):
-                    result = self._finalize_result(
-                        signed_call.tool_call,
-                        ToolResult(
-                            tool_call_id=signed_call.tool_call.id,
-                            output=str(result),
-                            is_error=True,
-                        ),
-                    )
+                    result = self._error_result(signed_call.tool_call, str(result))
                 ordered[index] = result
             return [result for result in ordered if result is not None]
         except Exception as exc:  # noqa: BLE001
             return [
-                self._finalize_result(
-                    signed_call.tool_call,
-                    ToolResult(
-                        tool_call_id=signed_call.tool_call.id,
-                        output=str(exc),
-                        is_error=True,
-                    ),
-                )
+                self._error_result(signed_call.tool_call, str(exc))
                 for signed_call in signed_calls
             ]
+
+    async def execute_signed_serial(
+        self,
+        signed_calls: list[SignedToolCall],
+        gate: SecurityGate,
+    ) -> list[ToolResult]:
+        results: list[ToolResult] = []
+        for signed_call in sorted(signed_calls, key=lambda item: item.sequence):
+            results.append(await self.execute_signed(signed_call, gate))
+        return results
 
     async def _log_result(self, tool_call: ToolCall, result: ToolResult, started_at: float) -> None:
         duration_ms = int((monotonic() - started_at) * 1000)

@@ -34,8 +34,14 @@ class ProviderConfig(BaseModel):
 
 class LLMRequest(BaseModel):
     model: str
-    messages: list[Message]
+    system_prompt: str = ""
     tools: list[ToolDefinition] | None = None
+    skill_messages: list[Message] = Field(default_factory=list)
+    memory_messages: list[Message] = Field(default_factory=list)
+    summary_message: Message | None = None
+    recent_messages: list[Message] = Field(default_factory=list)
+    cache_prefix_hash: str = ""
+    messages: list[Message] = Field(default_factory=list)
     tool_choice: str | dict[str, Any] | None = None
     temperature: float = 0.7
     max_tokens: int = 16384

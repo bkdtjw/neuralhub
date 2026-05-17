@@ -47,7 +47,10 @@ class FeishuCardAction(BaseModel):
     """A single action (button click) from card callback."""
 
     value: FeishuCardActionValue = Field(default_factory=FeishuCardActionValue)
+    form_value: dict[str, Any] = Field(default_factory=dict)
+    input_values: dict[str, Any] = Field(default_factory=dict)
     tag: str = "button"
+    model_config = {"extra": "allow"}
 
 
 class FeishuCardActionPayload(BaseModel):

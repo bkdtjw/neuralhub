@@ -50,7 +50,7 @@ async def prepare_step_checkpoint(loop: AgentLoop, todo_step: TodoStep, provider
         step_session_id,
         model=loop._config.model,
         provider=provider,
-        system_prompt=loop._config.system_prompt,
+        system_prompt=_checkpoint_system_prompt(loop),
     )
     existing = await store.get_messages(step_session_id)
     if existing:
@@ -61,20 +61,28 @@ async def prepare_step_checkpoint(loop: AgentLoop, todo_step: TodoStep, provider
             message_count=len(existing),
         )
         return
-    if loop._config.system_prompt:
-        system = Message(role="system", content=loop._config.system_prompt)
+    prompt = _checkpoint_system_prompt(loop)
+    if prompt:
+        system = Message(role="system", content=prompt)
         await store.add_messages(step_session_id, [system])
         loop.message_history.restore([system])
 
 
 def _restore_step_messages(loop: AgentLoop, messages: list[Message]) -> list[Message]:
-    prompt = loop._config.system_prompt
+    prompt = _checkpoint_system_prompt(loop)
     restored = (
         [Message(role="system", content=prompt), *messages]
         if prompt and (not messages or messages[0].role != "system")
         else list(messages)
     )
     return sanitize_message_history(restored)
+
+
+def _checkpoint_system_prompt(loop: AgentLoop) -> str:
+    if loop._config.system_prompt:
+        return loop._config.system_prompt
+    messages = getattr(loop, "_static_skill_messages", [])
+    return str(messages[0].content) if messages else ""
 
 
 __all__ = [

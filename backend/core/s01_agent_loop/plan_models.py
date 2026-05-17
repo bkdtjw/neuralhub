@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,9 @@ class PlanStep(BaseModel):
     title: str
     description: str
     tools_hint: list[str] = Field(default_factory=list)
+    type: Literal["script_step", "agent_step"] = "agent_step"
+    tool_name: str = ""
+    tool_arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutionPlan(BaseModel):

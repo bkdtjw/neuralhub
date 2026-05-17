@@ -36,6 +36,7 @@ class ToolDefinition(BaseModel):
     category: ToolCategory
     parameters: ToolParameterSchema
     permission: ToolPermission = Field(default_factory=ToolPermission)
+    side_effect: bool = True
 
 
 ToolExecuteFn: TypeAlias = Callable[[dict[str, Any]], Awaitable[ToolResult]]

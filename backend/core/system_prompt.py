@@ -2,6 +2,18 @@ from __future__ import annotations
 
 import platform
 
+COMPRESSION_RETENTION_TEMPLATE = """
+压缩时按以下优先级保留信息：
+P1 绝不删：标识符（商品ID、短链URL、淘口令、item_id、shop_id、订单号）
+P2 绝不删：用户决策（选了什么、排除了什么、为什么）
+P3 保留结论：失败路径（什么失败了、原因、换了什么策略）
+P4 保留摘要：关键结果（top 3 名称+价格，不需要完整 JSON）
+P5 可删但存文件：工具原始输出（写入文件，保留路径）
+P6 可删：日常寒暄、确认语句
+标识符必须原样保留，不得修改任何字符。
+当摘要或工具结果只给出文件路径且信息不足时，调用 read_history 回查原文。
+""".strip()
+
 
 def build_system_prompt(workspace: str | None = None) -> str:
     os_name = platform.system()
@@ -40,7 +52,8 @@ def build_system_prompt(workspace: str | None = None) -> str:
         ]
     )
     parts.append("回复使用中文。")
+    parts.append(COMPRESSION_RETENTION_TEMPLATE)
     return "\n".join(part for part in parts if part)
 
 
-__all__ = ["build_system_prompt"]
+__all__ = ["COMPRESSION_RETENTION_TEMPLATE", "build_system_prompt"]

@@ -150,6 +150,10 @@ async def _create_plan_runner(
     resolved_model = model or (spec.model if spec else "") or resolved_provider.default_model
     resolved_model = resolved_model or runtime._deps.settings.default_model  # noqa: SLF001
     adapter = await runtime._deps.provider_manager.get_adapter(resolved_provider.id)  # noqa: SLF001
+    stable_prompt, skill_prompt = runtime._compose_layered_prompt(  # noqa: SLF001
+        resolved_workspace,
+        spec.system_prompt if spec else "",
+    )
     tools = spec.tools if spec is not None else ToolConfig()
     max_depth = spec.sub_agents.max_depth if spec is not None else 1
     registry = runtime._build_registry(  # noqa: SLF001
@@ -185,6 +189,8 @@ async def _create_plan_runner(
         bridge=bridge,
         agent_spec=spec,
         owner_id=owner_id,
+        system_prompt=stable_prompt,
+        skill_prompt=skill_prompt,
     )
     _patch_plan_runner(runner, runtime, spec, resolved_workspace, event_handler)
     return runner
@@ -197,17 +203,7 @@ def _patch_plan_runner(
     workspace: str,
     event_handler: AgentEventHandler | None,
 ) -> None:
-    spec_prompt = runtime._compose_system_prompt(workspace, spec.system_prompt) if spec else ""  # noqa: SLF001
-    original_prompt = runner._build_step_prompt  # noqa: SLF001
     original_loop = runner._build_step_loop  # noqa: SLF001
-
-    def build_step_prompt(context: object, include_instruction: bool = True) -> tuple[str, str]:
-        system_prompt, user_message = original_prompt(
-            context, include_instruction=include_instruction
-        )
-        if spec_prompt:
-            system_prompt = f"{spec_prompt}\n\n{system_prompt}"
-        return system_prompt, user_message
 
     def build_step_loop(todo_step: object, context: object) -> AgentLoop:
         loop = original_loop(todo_step, context)
@@ -218,7 +214,6 @@ def _patch_plan_runner(
             loop.on(event_handler)
         return loop
 
-    runner._build_step_prompt = build_step_prompt  # noqa: SLF001
     runner._build_step_loop = build_step_loop  # noqa: SLF001
 
 

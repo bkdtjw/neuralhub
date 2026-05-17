@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -79,20 +80,22 @@ def build_runtime_registry(
     runtime: Any,
     spec_registry: Any,
     is_sub_agent: bool,
+    skill_loader: Any = None,
 ) -> ToolRegistry:
     base_registry = ToolRegistry()
-    register_tools(
-        base_registry,
-        workspace,
-        adapter=adapter,
-        default_model=model,
-        agent_runtime=runtime,
-        spec_registry=spec_registry,
-        task_queue=task_queue,
-        event_handler=event_handler,
-        is_sub_agent=is_sub_agent,
-        parent_task_id=session_id,
-    )
+    kwargs = {
+        "adapter": adapter,
+        "default_model": model,
+        "agent_runtime": runtime,
+        "spec_registry": spec_registry,
+        "task_queue": task_queue,
+        "event_handler": event_handler,
+        "is_sub_agent": is_sub_agent,
+        "parent_task_id": session_id,
+    }
+    if _accepts_keyword(register_tools, "skill_loader"):
+        kwargs["skill_loader"] = skill_loader
+    register_tools(base_registry, workspace, **kwargs)
     filtered = ToolRegistry()
     for definition in base_registry.list_definitions():
         if tools.allowed_tools and definition.name not in tools.allowed_tools:
@@ -109,6 +112,11 @@ def build_runtime_registry(
         _, executor = registered
         filtered.register(definition, executor)
     return filtered
+
+
+def _accepts_keyword(func: Callable[..., None], name: str) -> bool:
+    parameters = inspect.signature(func).parameters.values()
+    return any(param.kind == param.VAR_KEYWORD or param.name == name for param in parameters)
 
 
 __all__ = ["FilteredBridge", "build_runtime_registry"]

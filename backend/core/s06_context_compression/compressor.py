@@ -5,11 +5,13 @@ import json
 from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
 from backend.common.types import LLMRequest, Message
+from backend.core.system_prompt import COMPRESSION_RETENTION_TEMPLATE
 
 from .threshold_policy import ThresholdPolicy
 
 SUMMARY_SYSTEM_PROMPT = """
 你是对话历史压缩器。你的任务是把较早的 agent 对话压缩成继续工作的摘要。
+{retention_template}
 必须保留：
 1. 用户的核心需求与约束；
 2. 已完成的操作、执行结果与关键结论；
@@ -17,7 +19,7 @@ SUMMARY_SYSTEM_PROMPT = """
 4. 当前进度、已做出的技术决策；
 5. 未解决的问题、风险与下一步。
 不要编造信息，不要重复大段原文，优先保留可执行的事实。
-""".strip()
+""".format(retention_template=COMPRESSION_RETENTION_TEMPLATE).strip()
 
 
 class ContextCompressionError(AgentError):

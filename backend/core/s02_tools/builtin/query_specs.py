@@ -20,6 +20,7 @@ def create_query_specs_tool(registry: SpecRegistry) -> tuple[ToolDefinition, Too
             },
             required=[],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, Any]) -> ToolResult:

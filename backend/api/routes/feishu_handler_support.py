@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.common.types import Message, ProviderConfig, Session
 from backend.common.logging import bound_log_context, get_log_context, new_trace_id
+from backend.core.s02_tools.builtin.browser_agent.provider_errors import is_provider_rejection
 
 
 def build_feishu_log_context(chat_id: str) -> Any:
@@ -57,10 +58,25 @@ def resolve_reply_text(result: Any) -> str:
     return str(result)
 
 
+def is_provider_rejection_error(exc: Exception) -> bool:
+    return is_provider_rejection(exc)
+
+
+def resolve_error_reply(exc: Exception) -> str:
+    if is_provider_rejection_error(exc):
+        return (
+            "模型服务拒绝了本次内容处理，通常是页面内容触发了供应商安全策略；"
+            "飞书通道本身没有崩溃。"
+        )
+    return f"处理消息时出错：{exc}"
+
+
 __all__ = [
     "build_feishu_log_context",
     "extract_text",
+    "is_provider_rejection_error",
     "parse_slash_command",
+    "resolve_error_reply",
     "resolve_reply_text",
     "resolve_session_model",
 ]

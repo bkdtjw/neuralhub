@@ -186,7 +186,8 @@ async def test_create_loop_from_id_uses_prompt_and_tool_whitelist(runtime: Agent
     assert loop._config.model == "provider-model"  # noqa: SLF001
     assert loop._config.provider == "provider-1"  # noqa: SLF001
     assert "base:" in loop._config.system_prompt  # noqa: SLF001
-    assert "spec prompt" in loop._config.system_prompt  # noqa: SLF001
+    assert "spec prompt" not in loop._config.system_prompt  # noqa: SLF001
+    assert loop._static_skill_messages[0].content == "spec prompt"  # noqa: SLF001
     assert sorted(tool.name for tool in loop._executor.list_definitions()) == ["Read"]  # noqa: SLF001
     bridge = runtime._deps.mcp_manager.bridge  # noqa: SLF001
     assert bridge is not None

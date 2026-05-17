@@ -16,6 +16,7 @@ from .agent_loop_support import (
     response_content,
 )
 from .failure_recovery import ToolFailureRecoveryTracker
+from .tool_batching import merge_results, partition_by_side_effect
 
 if TYPE_CHECKING:
     from .agent_loop import AgentLoop
@@ -46,6 +47,8 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 loop._set_status("thinking")
                 tool_definitions = loop._executor.list_definitions()
                 messages = loop._history.raw_messages
+                messages[:] = await loop._layered_compressor.check_and_compact(messages)
+                messages[:] = await loop._layered_compressor.summarize_and_archive(messages)
                 estimated_tokens = loop._token_counter.estimate_messages_tokens(messages)
                 estimated_tokens += loop._token_counter.estimate_tools_tokens(tool_definitions)
                 if loop._compressor.policy.should_compact(estimated_tokens):
@@ -54,7 +57,14 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                     loop._set_status("thinking")
                 logger.info("llm_call_start", iteration=iteration_count)
                 response = await loop._adapter.complete(
-                    build_llm_request(loop._config, loop._history.raw_messages, tool_definitions)
+                    build_llm_request(
+                        loop._config,
+                        loop._history.raw_messages,
+                        tool_definitions,
+                        skill_loader=loop._skill_loader,
+                        memory_index=loop._memory_index,
+                        static_skill_messages=loop._static_skill_messages,
+                    )
                 )
                 log_llm_call_end(logger, response)
                 assistant = Message(
@@ -101,10 +111,23 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                     *auth_result.signed_calls,
                     *loop._security_gate.force_sign(approved_calls),
                 ]
-                signed_results = await loop._executor.execute_signed_batch(
+                read_only_calls, write_calls = partition_by_side_effect(
                     signed_calls,
+                    tool_definitions,
+                )
+                read_results = await loop._executor.execute_signed_batch(
+                    read_only_calls,
                     loop._security_gate,
                 )
+                write_results = await loop._executor.execute_signed_serial(
+                    write_calls,
+                    loop._security_gate,
+                )
+                signed_results = merge_results(read_results, write_results, signed_calls)
+                signed_results = [
+                    await loop._layered_compressor.process_tool_result(result)
+                    for result in signed_results
+                ]
                 results = failure_recovery.annotate(
                     [
                         *skipped_results,

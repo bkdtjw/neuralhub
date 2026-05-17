@@ -135,6 +135,7 @@ def create_lingxi_financial_search_tool() -> tuple[ToolDefinition, ToolExecuteFn
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:
@@ -181,6 +182,7 @@ def create_lingxi_realtime_marketdata_tool() -> tuple[ToolDefinition, ToolExecut
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:
@@ -225,6 +227,7 @@ def create_lingxi_ranklist_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:
@@ -274,6 +277,7 @@ def create_lingxi_smart_stock_selection_tool() -> tuple[ToolDefinition, ToolExec
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:

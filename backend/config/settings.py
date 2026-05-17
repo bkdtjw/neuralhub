@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     zhetaoke_app_key: str = ""
     zhetaoke_tb_sid: str = ""
     zhetaoke_tb_pid: str = ""
+    compact_threshold_l2: float = Field(default=0.5, ge=0.0, le=1.0)
+    compact_threshold_l3: float = Field(default=0.7, ge=0.0, le=1.0)
 
     @field_validator("morning_report_user_ids", mode="before")
     @classmethod

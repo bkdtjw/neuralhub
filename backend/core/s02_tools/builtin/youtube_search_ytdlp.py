@@ -204,6 +204,7 @@ def create_youtube_search_ytdlp_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
             },
             required=["query"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:
@@ -278,6 +279,7 @@ def create_youtube_subtitle_tool() -> tuple[ToolDefinition, ToolExecuteFn]:
             },
             required=["video_url"],
         ),
+        side_effect=False,
     )
 
     async def execute(args: dict[str, object]) -> ToolResult:

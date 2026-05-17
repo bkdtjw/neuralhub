@@ -14,8 +14,15 @@ from backend.common.types import (
     Message,
     SecurityPolicy,
 )
+from backend.config import settings
 from backend.core.s02_tools import SecurityGate, ToolExecutor, ToolRegistry
-from backend.core.s06_context_compression import ContextCompressor, ThresholdPolicy, TokenCounter
+from backend.core.s06_context_compression import (
+    ContextCompressor,
+    LayeredCompressor,
+    LayeredCompressorConfig,
+    ThresholdPolicy,
+    TokenCounter,
+)
 
 from .checkpoint import CheckpointFn
 from .agent_loop_approval import AgentLoopApprovalMixin
@@ -45,6 +52,9 @@ class AgentLoop(AgentLoopApprovalMixin):
         owner_id: str = "unknown",
         user_config_store: UserConfigStore | None = None,
         tool_review_context: ToolReviewContext | None = None,
+        skill_loader: Any | None = None,
+        memory_index: Any | None = None,
+        static_skill_messages: list[Message] | None = None,
     ) -> None:
         self._config = config
         self._adapter = adapter
@@ -53,6 +63,9 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._owner_id = owner_id or "unknown"
         self._user_config_store = user_config_store or UserConfigStore()
         self._tool_review_context = tool_review_context or ToolReviewContext()
+        self._skill_loader = skill_loader
+        self._memory_index = memory_index
+        self._static_skill_messages = static_skill_messages or []
         self._executor = ToolExecutor(tool_registry)
         self._security_gate = SecurityGate(
             policy=security_policy or SecurityPolicy(allowed_tools=[], dangerous_tools=[]),
@@ -62,6 +75,15 @@ class AgentLoop(AgentLoopApprovalMixin):
             adapter=adapter,
             model=config.model,
             policy=ThresholdPolicy(),
+        )
+        self._layered_compressor = LayeredCompressor(
+            adapter,
+            config.model,
+            LayeredCompressorConfig(
+                threshold_l2=settings.compact_threshold_l2,
+                threshold_l3=settings.compact_threshold_l3,
+                session_id=config.session_id,
+            ),
         )
         self._token_counter = TokenCounter()
         self._history = MessageHistory(checkpoint_fn=checkpoint_fn, session_id=config.session_id)

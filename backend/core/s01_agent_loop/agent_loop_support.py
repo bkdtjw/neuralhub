@@ -32,30 +32,106 @@ class PromptCachePrefix:
 
 
 def build_prompt_cache_key(prefix: PromptCachePrefix) -> str:
-    payload = {
-        "system_prompt": prefix.system_prompt,
-        "tools": [tool.model_dump(mode="json") for tool in prefix.tools],
-    }
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    digest = build_cache_prefix_hash(prefix.system_prompt, prefix.tools)[:16]
     return (
         f"agent-studio:{_cache_key_part(prefix.provider)}:{_cache_key_part(prefix.model)}:{digest}"
     )
+
+
+def build_cache_prefix_hash(system_prompt: str, tools: list[ToolDefinition]) -> str:
+    payload = {
+        "system_prompt": system_prompt,
+        "tools": [tool.model_dump(mode="json") for tool in tools],
+    }
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def build_llm_request(
     config: AgentConfig,
     messages: list[Message],
     tools: list[ToolDefinition],
+    *,
+    skill_loader: Any | None = None,
+    memory_index: Any | None = None,
+    static_skill_messages: list[Message] | None = None,
 ) -> LLMRequest:
+    system_msg, summary, recent = _split_history(messages)
+    system_prompt = config.system_prompt or (system_msg.content if system_msg else "")
+    latest_text = _latest_user_text(recent)
+    skill_messages = [
+        *_coerce_zone_messages(static_skill_messages or []),
+        *_coerce_zone_messages(skill_loader.match(latest_text) if skill_loader else []),
+    ]
+    skill_messages = [
+        message
+        for message in skill_messages
+        if not (message.role == "system" and message.content == system_prompt)
+    ]
+    memory_messages = _coerce_zone_messages(
+        memory_index.match(latest_text, limit=5) if memory_index else []
+    )
+    prefix_hash = build_cache_prefix_hash(system_prompt, tools)
+    legacy_system = system_msg or (
+        Message(role="system", content=system_prompt) if system_prompt else None
+    )
+    legacy_messages = [
+        *([legacy_system] if legacy_system else []),
+        *skill_messages,
+        *memory_messages,
+        *([summary] if summary else []),
+        *recent,
+    ]
     return LLMRequest(
         model=config.model,
-        messages=messages,
+        system_prompt=system_prompt,
         tools=tools or None,
+        skill_messages=skill_messages,
+        memory_messages=memory_messages,
+        summary_message=summary,
+        recent_messages=recent,
+        cache_prefix_hash=prefix_hash,
+        messages=legacy_messages,
         prompt_cache_key=build_prompt_cache_key(
-            PromptCachePrefix(config.provider, config.model, config.system_prompt, tools)
+            PromptCachePrefix(config.provider, config.model, system_prompt, tools)
         ),
     )
+
+
+def _split_history(messages: list[Message]) -> tuple[Message | None, Message | None, list[Message]]:
+    system_msg = next((message for message in messages if message.role == "system"), None)
+    non_system = [message for message in messages if message.role != "system"]
+    summary = next((_ for _ in reversed(non_system) if _is_summary_message(_)), None)
+    recent = [message for message in non_system if message is not summary]
+    return system_msg, summary, recent
+
+
+def _is_summary_message(message: Message) -> bool:
+    content = message.content.lstrip()
+    return content.startswith("[对话历史摘要]") or content.startswith("[压缩摘要]")
+
+
+def _latest_user_text(messages: list[Message]) -> str:
+    return next((message.content for message in reversed(messages) if message.role == "user"), "")
+
+
+def _coerce_zone_messages(items: Any) -> list[Message]:
+    result: list[Message] = []
+    for item in items or []:
+        if isinstance(item, Message):
+            result.append(item)
+        elif hasattr(item, "lesson"):
+            result.append(_memory_entry_to_message(item))
+        elif isinstance(item, str) and item.strip():
+            result.append(Message(role="system", content=item.strip()))
+    return result
+
+
+def _memory_entry_to_message(entry: Any) -> Message:
+    trigger = str(getattr(entry, "trigger", "")).strip()
+    lesson = str(getattr(entry, "lesson", "")).strip()
+    content = f"[长期记忆]\n触发: {trigger}\n经验: {lesson}".strip()
+    return Message(role="system", content=content)
 
 
 def response_content(response: LLMResponse) -> str:
@@ -126,17 +202,3 @@ def patch_orphan_tool_calls(messages: list[Message]) -> list[Message]:
         return messages
     messages.append(Message(role="tool", content="", tool_results=build_orphan_tool_results(last)))
     return messages
-
-
-__all__ = [
-    "build_llm_request",
-    "build_orphan_tool_results",
-    "build_prompt_cache_key",
-    "build_run_logger",
-    "log_llm_call_end",
-    "log_tool_result",
-    "message_fingerprint",
-    "patch_orphan_tool_calls",
-    "PromptCachePrefix",
-    "response_content",
-]

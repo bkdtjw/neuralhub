@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -51,6 +51,9 @@ class AgentSpec(BaseModel):
     tools: ToolConfig = Field(default_factory=ToolConfig)
     sub_agents: SubAgentPolicy = Field(default_factory=SubAgentPolicy)
     source_path: str = ""
+    mode: Literal["inject", "loop"] = "loop"
+    trigger_keywords: list[str] = Field(default_factory=list)
+    inject_max_chars: int = Field(default=2000, ge=1)
 
     @field_validator("id")
     @classmethod

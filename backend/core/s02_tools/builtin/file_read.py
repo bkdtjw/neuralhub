@@ -22,6 +22,7 @@ def create_read_tool(base_path: str) -> tuple[ToolDefinition, ToolExecuteFn]:
             properties={"path": {"type": "string", "description": "Relative file path"}},
             required=["path"],
         ),
+        side_effect=False,
     )
     root = os.path.abspath(base_path)
 
