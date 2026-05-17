@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     llm_fallback_circuit_seconds: float = Field(default=300.0, ge=1.0)
     main_agent_provider_id: str = ""
     vision_subagent_provider_id: str = ""
+    compact_threshold_l2: float = Field(default=0.5, ge=0.0, le=1.0)
+    compact_threshold_l3: float = Field(default=0.7, ge=0.0, le=1.0)
 
     @field_validator("morning_report_user_ids", mode="before")
     @classmethod

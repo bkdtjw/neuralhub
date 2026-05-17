@@ -9,6 +9,7 @@ from backend.common.logging import get_logger, setup_logging
 from backend.common.metrics import close_metrics, init_metrics
 from backend.config import close_redis, get_redis, init_redis, settings
 from backend.core import create_sub_agent_task_queue, init_agent_runtime
+from backend.core.s06_context_compression.artifact_gc import run_artifact_gc_loop
 from backend.core.s02_tools.mcp import MCPServerManager
 from backend.core.task_queue import TaskQueue
 from backend.api.task_queue_consumer import SubAgentConsumerContext, consume_next_sub_agent_task
@@ -73,6 +74,9 @@ def _create_background_tasks(
             _recover_loop(context.queue, shutdown_event),
             name="sub-worker-recovery",
         )
+    )
+    tasks.append(
+        asyncio.create_task(run_artifact_gc_loop(shutdown_event), name="artifact-gc")
     )
     return tasks
 
