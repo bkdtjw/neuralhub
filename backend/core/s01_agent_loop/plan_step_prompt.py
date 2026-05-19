@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .plan_models import PlanStep
+from .step_result import StepResult
 
 STEP_EXECUTION_SYSTEM_PROMPT = """
 你是 Agent Studio 的计划执行者。你只执行当前步骤，不重新规划整个任务。
@@ -54,6 +55,7 @@ def build_step_messages(
     previous_summary: str = "",
     completed_context: str = "",
     workspace: str = "",
+    previous_results: list[StepResult] | None = None,
 ) -> tuple[str, str]:
     summary = previous_summary.strip() or "无"
     completed_context_block = (
@@ -70,16 +72,54 @@ def build_step_messages(
         completed_context_block=completed_context_block,
         previous_summary=summary,
     )
+    previous_block = (
+        _format_previous_results(previous_results)
+        if previous_results
+        else f"前一步摘要：{summary}"
+    )
     user_message = "\n".join(
         [
             f"请执行计划第 {step_index}/{total_steps} 步：{step.title}",
             "",
             step.description,
             "",
-            f"前一步摘要：{summary}",
+            previous_block,
+            "",
+            _KEY_DATA_INSTRUCTION,
         ]
     )
     return system_prompt, user_message
+
+
+_KEY_DATA_INSTRUCTION = (
+    "本步骤完成时，请在最后一条回复里输出一个 fenced JSON 块（```json ... ```），\n"
+    "内容是本步的 key_data 字段（按当前步骤的业务产出选字段，不要复述上一步）。\n"
+    "如无业务字段，输出空对象 {}。"
+)
+
+
+def _format_previous_results(previous_results: list[StepResult] | None) -> str:
+    if not previous_results:
+        return ""
+    blocks = ["## 前置步骤结果（结构化，不要重新理解，直接消费）"]
+    for result in previous_results:
+        blocks.extend(["", f"### Step {result.step_id}: {result.task}"])
+        blocks.extend(
+            [
+                f"- status: {result.status.value}",
+                f"- result_summary: {result.result_summary}",
+                "- key_data:",
+                *_format_key_data(result.key_data),
+                f"- artifact_path: {result.artifact_path}",
+            ]
+        )
+    return "\n".join(blocks)
+
+
+def _format_key_data(key_data: dict[str, object]) -> list[str]:
+    if not key_data:
+        return ["  - 无"]
+    return [f"  - {key}: {value!r}" for key, value in key_data.items()]
 
 
 __all__ = [
