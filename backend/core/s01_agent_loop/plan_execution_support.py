@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import shlex
 from dataclasses import dataclass
 
+from .plan_extract import (
+    KEY_FINDING_LIMIT,
+    MAX_KEY_FINDINGS,
+    OUTPUT_SUMMARY_LIMIT,
+    SUMMARY_DISPLAY_LIMIT,
+    _extract_files_touched,
+    _extract_key_data,
+    _extract_key_findings,
+    _extract_output_summary,
+)
 from .plan_models import ExecutionPlan, PlanStep, TodoState, TodoStep
-
-OUTPUT_SUMMARY_LIMIT = 4000
-SUMMARY_DISPLAY_LIMIT = 200
-KEY_FINDING_LIMIT = 200
-MAX_KEY_FINDINGS = 5
-_PATH_COMMANDS = {"cat", "head", "tail", "less", "more", "nl"}
+from .step_result import StepResult, StepStatus
 
 
 @dataclass(frozen=True)
@@ -104,97 +108,58 @@ def refresh_pending_todo_titles(todo_state: TodoState | None, plan: ExecutionPla
             todo_step.title = titles[todo_step.id]
 
 
-def extract_step_context(todo_step: TodoStep, loop: object) -> None:
+def extract_step_context(
+    todo_step: TodoStep,
+    plan_step: PlanStep,
+    loop: object,
+    request_id: str,
+) -> StepResult:
     messages = loop.messages
-    todo_step.output_summary = _extract_output_summary(messages)
-    todo_step.files_touched = _extract_files_touched(messages)
-    todo_step.key_findings = _extract_key_findings(messages)
+    output_summary = _extract_output_summary(messages)
+    files_touched = _extract_files_touched(messages)
+    key_findings = _extract_key_findings(messages)
+    todo_step.output_summary = output_summary
+    todo_step.files_touched = files_touched
+    todo_step.key_findings = key_findings
+    return StepResult(
+        step_id=todo_step.id,
+        request_id=request_id,
+        status=default_status_from(todo_step),
+        task=plan_step.title,
+        result_summary=output_summary,
+        key_data=_extract_key_data(messages),
+        files_touched=files_touched,
+        key_findings=key_findings,
+        duration_s=todo_step.duration_s,
+    )
+
+
+def default_status_from(todo_step: TodoStep) -> StepStatus:
+    if todo_step.status == "done":
+        return StepStatus.DONE
+    if todo_step.status == "skipped":
+        return StepStatus.SKIPPED
+    if todo_step.status == "blocked":
+        return StepStatus.BLOCKED
+    return StepStatus.FAILED
 
 
 def tool_call_count(loop: object) -> int:
     return sum(len(message.tool_calls or []) for message in loop.messages if message.role == "assistant")
 
 
-def _extract_output_summary(messages: list[object]) -> str:
-    for message in reversed(messages):
-        if getattr(message, "role", "") == "assistant":
-            content = str(getattr(message, "content", "")).strip()
-            if content:
-                return content[:OUTPUT_SUMMARY_LIMIT]
-    return ""
-
-
-def _extract_files_touched(messages: list[object]) -> list[str]:
-    files: set[str] = set()
-    for message in messages:
-        for call in getattr(message, "tool_calls", None) or []:
-            arguments = getattr(call, "arguments", {}) or {}
-            _collect_path_values(arguments, files)
-            command = arguments.get("command")
-            if isinstance(command, str):
-                files.update(_extract_paths_from_command(command))
-        for result in getattr(message, "tool_results", None) or []:
-            for diff in getattr(result, "diffs", []) or []:
-                path = getattr(diff, "path", "")
-                if path:
-                    files.add(str(path))
-    return sorted(files)
-
-
-def _collect_path_values(value: object, files: set[str]) -> None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == "path" and isinstance(item, str) and item.strip():
-                files.add(item.strip())
-            else:
-                _collect_path_values(item, files)
-    elif isinstance(value, list):
-        for item in value:
-            _collect_path_values(item, files)
-
-
-def _extract_paths_from_command(command: str) -> list[str]:
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        tokens = command.split()
-    paths: list[str] = []
-    for index, token in enumerate(tokens):
-        if token not in _PATH_COMMANDS:
-            continue
-        paths.extend(_command_paths_after(tokens[index + 1 :]))
-    return paths
-
-
-def _command_paths_after(tokens: list[str]) -> list[str]:
-    paths: list[str] = []
-    for token in tokens:
-        if token in {"|", "&&", ";"}:
-            break
-        if token.startswith("-"):
-            continue
-        paths.append(token)
-        if len(paths) >= 2:
-            break
-    return paths
-
-
-def _extract_key_findings(messages: list[object]) -> list[str]:
-    findings: list[str] = []
-    for message in messages:
-        for result in getattr(message, "tool_results", None) or []:
-            if getattr(result, "is_error", False):
-                continue
-            first_line = _first_nonempty_line(str(getattr(result, "output", "")))
-            if first_line:
-                findings.append(first_line[:KEY_FINDING_LIMIT])
-            if len(findings) >= MAX_KEY_FINDINGS:
-                return findings
-    return findings
-
-
-def _first_nonempty_line(text: str) -> str:
-    return next((line.strip() for line in text.splitlines() if line.strip()), "")
-
-
-__all__ = ["KEY_FINDING_LIMIT", "MAX_KEY_FINDINGS", "OUTPUT_SUMMARY_LIMIT", "SUMMARY_DISPLAY_LIMIT", "build_completed_steps_context", "build_step_context", "extract_step_context", "find_plan_step", "previous_done_step", "refresh_pending_todo_titles", "remaining_plan_steps", "tool_call_count"]
+__all__ = [
+    "KEY_FINDING_LIMIT",
+    "MAX_KEY_FINDINGS",
+    "OUTPUT_SUMMARY_LIMIT",
+    "SUMMARY_DISPLAY_LIMIT",
+    "build_completed_steps_context",
+    "build_step_context",
+    "default_status_from",
+    "extract_step_context",
+    "find_plan_step",
+    "previous_done_step",
+    "refresh_pending_todo_titles",
+    "remaining_plan_steps",
+    "tool_call_count",
+]

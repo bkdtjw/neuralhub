@@ -3,18 +3,17 @@ from __future__ import annotations
 import asyncio
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger
 from backend.common.types import AgentConfig, Message
 from backend.core.s02_tools import ToolRegistry
-
 from .agent_loop import AgentLoop
-from .checkpoint import CheckpointFn
 from .plan_control_store import PlanControlStore
 from .plan_convergence import ConvergenceMonitor
 from .plan_execute_errors import PlanExecuteError
-from .plan_execution_support import build_step_context, extract_step_context, refresh_pending_todo_titles
+from .plan_execution_support import build_step_context, extract_step_context, find_plan_step, refresh_pending_todo_titles
 from .plan_models import PlanPhase, TodoStep
 from .plan_step_checkpoint import make_step_checkpoint_fn, make_step_session_id
 from .plan_step_artifacts import archive_agent_step, summary_with_archive
@@ -149,7 +148,7 @@ class PlanExecuteRunnerStepsMixin:
             ),
             adapter=self._adapter,
             tool_registry=self._build_step_registry(),
-            checkpoint_fn=self._make_step_checkpoint_fn(step_session_id),
+            checkpoint_fn=make_step_checkpoint_fn(step_session_id),
             owner_id=self._owner_id,
             static_skill_messages=skill_messages,
             tool_review_context=ToolReviewContext(
@@ -158,9 +157,6 @@ class PlanExecuteRunnerStepsMixin:
                 step_description=getattr(context.plan_step, "description", ""),
             ),
         )
-
-    def _make_step_checkpoint_fn(self, step_session_id: str) -> CheckpointFn:
-        return make_step_checkpoint_fn(step_session_id)
 
     def _build_step_registry(self) -> ToolRegistry:
         registry = ToolRegistry()
@@ -187,14 +183,16 @@ class PlanExecuteRunnerStepsMixin:
         return system_prompt, user_message
 
     def _extract_step_context(self, todo_step: TodoStep, loop: AgentLoop) -> None:
-        extract_step_context(todo_step, loop)
+        plan_step = find_plan_step(self._plan, todo_step.id)
+        if plan_step is None:
+            raise PlanExecuteError("PLAN_STEP_NOT_FOUND", f"Missing step {todo_step.id}")
+        extract_step_context(todo_step, plan_step, loop, uuid4().hex)
         path = archive_agent_step(todo_step, loop.messages, self._steps_dir)
         todo_step.output_summary = summary_with_archive(todo_step.output_summary, path)
 
     def _reload_plan(self) -> None:
-        if self._state.plan is None:
-            return
-        self._plan = self._state.plan
-        refresh_pending_todo_titles(self._todo_state, self._plan)
+        if self._state.plan is not None:
+            self._plan = self._state.plan
+            refresh_pending_todo_titles(self._todo_state, self._plan)
 
 __all__ = ["ConvergenceMonitor", "PlanExecuteRunnerStepsMixin"]
