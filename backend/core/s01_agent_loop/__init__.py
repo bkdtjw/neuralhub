@@ -17,6 +17,7 @@ from .plan_step_prompt import build_step_messages
 from .plan_state_machine import PLAN_TRANSITIONS, TERMINAL_PHASES, is_terminal, transition, validate_transition
 from .plan_store import PlanStore, TodoStore, generate_plan_name
 from .plan_todo_tool import TODOUPDATE_TOOL_NAME, create_todoupdate_executor
+from .step_result import StepResult, StepResultStore, StepStatus
 from .user_config_store import UserConfig, UserConfigStore
 
 __all__ = [
@@ -36,6 +37,9 @@ __all__ = [
     "PlanStore",
     "PLAN_TRANSITIONS",
     "SilentPlanRenderer",
+    "StepResult",
+    "StepResultStore",
+    "StepStatus",
     "TERMINAL_PHASES",
     "TodoState",
     "TodoStep",
