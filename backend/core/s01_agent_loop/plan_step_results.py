@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from backend.common.metrics import incr
+
 from .agent_loop import AgentLoop
 from .plan_execution_support import default_status_from, extract_step_context
 from .plan_models import PlanStep, TodoStep
 from .plan_step_artifacts import archive_agent_step, summary_with_archive
-from .step_result import StepResult, StepResultStore
+from .step_result import StepResult, StepResultStore, StepStatus
 
 
 def build_step_result(
@@ -32,10 +34,39 @@ def build_step_result(
     return result
 
 
-def persist_step_result(store: StepResultStore, session_id: str, result: StepResult) -> Path:
+async def persist_step_result(store: StepResultStore, session_id: str, result: StepResult) -> Path:
     path = store.write(session_id, result)
     result.artifact_path = path.as_posix()
-    return store.write(session_id, result)
+    final_path = store.write(session_id, result)
+    await incr("plan_step_results_persisted")
+    return final_path
+
+
+async def record_step_result(
+    results: list[StepResult],
+    store: StepResultStore,
+    session_id: str,
+    todo_step: TodoStep,
+    plan_step: PlanStep,
+    loop: AgentLoop | None,
+    request_id: str,
+    steps_dir: Path,
+) -> None:
+    result = build_step_result(todo_step, plan_step, loop, request_id, steps_dir)
+    await persist_step_result(store, session_id, result)
+    upsert_step_result(results, result)
+
+
+async def record_step_resumed_from_disk(
+    todo_step: TodoStep,
+    results: list[StepResult],
+) -> None:
+    if todo_step.status != "done":
+        return
+    for result in results:
+        if result.step_id == todo_step.id and result.status == StepStatus.DONE:
+            await incr("plan_step_resumed_from_disk")
+            return
 
 
 def upsert_step_result(results: list[StepResult], result: StepResult) -> None:
@@ -56,4 +87,10 @@ def _result_from_todo(todo_step: TodoStep, plan_step: PlanStep, request_id: str)
     )
 
 
-__all__ = ["build_step_result", "persist_step_result", "upsert_step_result"]
+__all__ = [
+    "build_step_result",
+    "persist_step_result",
+    "record_step_result",
+    "record_step_resumed_from_disk",
+    "upsert_step_result",
+]

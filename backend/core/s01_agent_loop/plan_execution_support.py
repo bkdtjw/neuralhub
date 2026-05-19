@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from .plan_extract import (
     KEY_FINDING_LIMIT,
@@ -14,6 +15,10 @@ from .plan_extract import (
 )
 from .plan_models import ExecutionPlan, PlanStep, TodoState, TodoStep
 from .step_result import StepResult, StepStatus
+
+
+class MessageLoop(Protocol):
+    messages: list[Any]
 
 
 @dataclass(frozen=True)
@@ -41,7 +46,10 @@ def build_step_context(
     plan_step = find_plan_step(plan, todo_step.id)
     if plan_step is None or plan is None:
         return None
-    index = next((idx for idx, step in enumerate(plan.steps, start=1) if step.step_id == todo_step.id), 1)
+    index = next(
+        (idx for idx, step in enumerate(plan.steps, start=1) if step.step_id == todo_step.id),
+        1,
+    )
     previous_results = (
         [result for result in step_results if result.step_id < todo_step.id]
         if step_results is not None
@@ -81,7 +89,8 @@ def build_completed_steps_context(
     if todo_state is None or max_total_chars <= 0:
         return ""
     steps = sorted(
-        (step for step in todo_state.steps if step.status == "done" and step.id < current_step_id), key=lambda step: step.id
+        (step for step in todo_state.steps if step.status == "done" and step.id < current_step_id),
+        key=lambda step: step.id,
     )
     if not steps:
         return ""
@@ -89,7 +98,10 @@ def build_completed_steps_context(
     if len(full_text) <= max_total_chars:
         return full_text
     recent_start = max(len(steps) - 3, 0)
-    blocks = [_format_completed_step_brief(step) if index < recent_start else _format_completed_step(step) for index, step in enumerate(steps)]
+    blocks = [
+        _format_completed_step_brief(step) if index < recent_start else _format_completed_step(step)
+        for index, step in enumerate(steps)
+    ]
     while blocks and len("\n\n".join(blocks)) > max_total_chars:
         blocks.pop(0)
     return "\n\n".join(blocks)
@@ -99,7 +111,10 @@ def _format_completed_step(step: TodoStep) -> str:
     summary = step.output_summary.strip()[:300] or "无"
     files = _format_step_values(step.files_touched, ", ")
     findings = _format_step_values(step.key_findings[:MAX_KEY_FINDINGS], "; ")
-    return f"### 步骤 {step.id}: {step.title}\n摘要: {summary}\n修改文件: {files}\n关键发现: {findings}"
+    return (
+        f"### 步骤 {step.id}: {step.title}\n"
+        f"摘要: {summary}\n修改文件: {files}\n关键发现: {findings}"
+    )
 
 def _format_completed_step_brief(step: TodoStep) -> str:
     return f"步骤 {step.id}: {step.title} | 文件: {_format_step_values(step.files_touched, ', ')}"
@@ -126,7 +141,7 @@ def refresh_pending_todo_titles(todo_state: TodoState | None, plan: ExecutionPla
 def extract_step_context(
     todo_step: TodoStep,
     plan_step: PlanStep,
-    loop: object,
+    loop: MessageLoop,
     request_id: str,
 ) -> StepResult:
     messages = loop.messages
@@ -159,8 +174,12 @@ def default_status_from(todo_step: TodoStep) -> StepStatus:
     return StepStatus.FAILED
 
 
-def tool_call_count(loop: object) -> int:
-    return sum(len(message.tool_calls or []) for message in loop.messages if message.role == "assistant")
+def tool_call_count(loop: MessageLoop) -> int:
+    return sum(
+        len(message.tool_calls or [])
+        for message in loop.messages
+        if message.role == "assistant"
+    )
 
 
 __all__ = [

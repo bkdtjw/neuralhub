@@ -21,6 +21,8 @@ METRIC_NAMES = (
     "feishu_messages",
     "feishu_replies",
     "agent_runs",
+    "plan_step_results_persisted",
+    "plan_step_resumed_from_disk",
 )
 _collector: MetricsCollector | None = None
 

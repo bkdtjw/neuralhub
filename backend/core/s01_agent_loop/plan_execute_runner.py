@@ -3,14 +3,14 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.common.errors import AgentError
 from backend.common.types import Message, generate_id
 from backend.common.types.llm import LLMRequest
 
-from .plan_control import PlanControlState
 from .plan_checkpoint_store import PlanCheckpointStore
+from .plan_control import PlanControlState
 from .plan_execute_errors import PlanExecuteError
 from .plan_execute_runner_notifications import PlanExecuteRunnerNotificationsMixin
 from .plan_execute_runner_state import PlanExecuteRunnerStateMixin, checkpoint_dir_for
@@ -59,13 +59,13 @@ class PlanExecuteRunner(
         self._todo_store = todo_store
         self._bridge = bridge
         self._agent_spec = agent_spec
-        self._checkpoint_store = checkpoint_store or PlanCheckpointStore(checkpoint_dir_for(todo_store))
+        self._checkpoint_store = checkpoint_store or PlanCheckpointStore(checkpoint_dir_for(todo_store))  # noqa: E501
         self._renderer = renderer
         self._session_id = session_id or generate_id()
         self._owner_id = owner_id or "unknown"
         self._system_prompt = system_prompt
         self._skill_prompt = skill_prompt
-        self._steps_dir = Path(getattr(todo_store, "_base_dir", Path("data/todos"))).parent / "steps"
+        self._steps_dir = Path(getattr(todo_store, "_base_dir", Path("data/todos"))).parent / "steps"  # noqa: E501
         self._step_result_store = step_result_store or StepResultStore(self._steps_dir)
         self._step_results: list[StepResult] = []
         self._state = PlanState(plan_name="", session_id=self._session_id, owner_id=self._owner_id)
@@ -143,7 +143,7 @@ class PlanExecuteRunner(
         return self._agent_spec
 
     async def _run_recon(self, user_message: str) -> str:
-        return await run_recon(ReconInput(self._adapter, self._tool_registry, self._session_id, user_message))
+        return await run_recon(ReconInput(self._adapter, self._tool_registry, self._session_id, user_message))  # noqa: E501
 
     async def _generate_plan(self, user_message: str, recon_report: str = "") -> ExecutionPlan:
         try:

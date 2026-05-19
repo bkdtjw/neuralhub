@@ -8,6 +8,10 @@ logger = get_logger(component="plan_execute_runner")
 
 
 class PlanExecuteRunnerNotificationsMixin:
+    _plan_name: str
+    _renderer: Any
+    _todo_state: Any
+
     async def _notify_renderer(self, method_name: str, *args: object, **kwargs: object) -> None:
         if self._renderer is None:
             return
@@ -24,8 +28,11 @@ class PlanExecuteRunnerNotificationsMixin:
             await self._notify_renderer("on_plan_cancelled", self._plan_name, self._todo_state)
             return
         if self._todo_state.status == "partial_failed":
-            done = sum(1 for step in self._todo_state.steps if step.status == "done")
-            failed = sum(1 for step in self._todo_state.steps if step.status == "failed")
+            done = 0
+            failed = 0
+            for step in self._todo_state.steps:
+                done += 1 if step.status == "done" else 0
+                failed += 1 if step.status == "failed" else 0
             await self._notify_renderer(
                 "on_plan_partial_failed",
                 self._plan_name,

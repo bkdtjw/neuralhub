@@ -9,6 +9,7 @@ from backend.common.errors import AgentError
 from backend.common.logging import get_logger
 from backend.common.types import AgentConfig, Message
 from backend.core.s02_tools import ToolRegistry
+
 from .agent_loop import AgentLoop
 from .plan_control_store import PlanControlStore
 from .plan_convergence import ConvergenceMonitor
@@ -16,17 +17,15 @@ from .plan_execute_errors import PlanExecuteError
 from .plan_execution_support import build_step_context, refresh_pending_todo_titles
 from .plan_models import PlanPhase, TodoStep
 from .plan_step_checkpoint import make_step_checkpoint_fn, make_step_session_id
-from .plan_step_results import build_step_result, persist_step_result, upsert_step_result
-from .plan_step_runner import notify_step_finished, run_agent_step, run_script_step
 from .plan_step_prompt import build_step_messages
+from .plan_step_results import record_step_result, record_step_resumed_from_disk
+from .plan_step_runner import notify_step_finished, run_agent_step, run_script_step
 from .plan_todo_tool import TODOUPDATE_DEFINITION, TODOUPDATE_TOOL_NAME, create_todoupdate_executor
 from .tool_review import ToolReviewContext
 
 STEP_TIMEOUT_SECONDS = 600
 STEP_MAX_ITERATIONS = 30
-
 logger = get_logger(component="plan_execute_runner")
-
 class PlanExecuteRunnerStepsMixin:
     def pause(self) -> None:
         self._control.request_pause()
@@ -41,7 +40,7 @@ class PlanExecuteRunnerStepsMixin:
         try:
             self._reload_plan()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("plan_reread_failed", plan_name=self._plan_name, step_id=step_id, error=str(exc))
+            logger.warning("plan_reread_failed", plan_name=self._plan_name, step_id=step_id, error=str(exc))  # noqa: E501
 
     async def _execute_todo_steps(self) -> None:
         try:
@@ -58,6 +57,7 @@ class PlanExecuteRunnerStepsMixin:
                     return
                 step = self._todo_state.steps[index]
                 if step.status in {"done", "failed", "skipped"}:
+                    await record_step_resumed_from_disk(step, self._step_results)
                     index += 1
                     continue
                 await self._run_step(step)
@@ -107,9 +107,9 @@ class PlanExecuteRunnerStepsMixin:
         try:
             total_steps = len(self._todo_state.steps) if self._todo_state is not None else 0
             if self._renderer is not None:
-                await self._notify_renderer("on_step_start", todo_step.id, todo_step.title, total_steps)
+                await self._notify_renderer("on_step_start", todo_step.id, todo_step.title, total_steps)  # noqa: E501
 
-            context = build_step_context(self._plan, self._todo_state, todo_step, self._step_results)
+            context = build_step_context(self._plan, self._todo_state, todo_step, self._step_results)  # noqa: E501
             if context is None:
                 raise PlanExecuteError("PLAN_STEP_NOT_FOUND", f"Missing step {todo_step.id}")
 
@@ -131,9 +131,7 @@ class PlanExecuteRunnerStepsMixin:
             todo_step.duration_s = max(round(monotonic() - started_at, 3), 0.001)
             if context is not None:
                 active_loop = loop or self._active_step_loop
-                result = build_step_result(todo_step, context.plan_step, active_loop, request_id, self._steps_dir)
-                persist_step_result(self._step_result_store, self._session_id, result)
-                upsert_step_result(self._step_results, result)
+                await record_step_result(self._step_results, self._step_result_store, self._session_id, todo_step, context.plan_step, active_loop, request_id, self._steps_dir)  # noqa: E501
             self._active_step_loop = None
             self._current_step_id = 0
             self._persist_state()

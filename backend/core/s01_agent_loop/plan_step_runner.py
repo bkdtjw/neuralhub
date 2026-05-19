@@ -15,7 +15,11 @@ async def run_agent_step(runner: Any, todo_step: TodoStep, context: Any, timeout
     loop = runner._build_step_loop(todo_step, context)
     runner._active_step_loop = loop
     runner._persist_state()
-    await prepare_step_checkpoint(loop, todo_step, adapter_provider_name(getattr(runner, "_adapter", None)))
+    await prepare_step_checkpoint(
+        loop,
+        todo_step,
+        adapter_provider_name(getattr(runner, "_adapter", None)),
+    )
     monitor = ConvergenceMonitor(loop, _step_goal(context))
     loop.on(monitor.on_event)
     _, user_message = runner._build_step_prompt(context)
@@ -36,9 +40,20 @@ async def notify_step_finished(runner: Any, todo_step: TodoStep) -> None:
     if runner._renderer is None:
         return
     if todo_step.status == "done":
-        await runner._notify_renderer("on_step_done", todo_step.id, todo_step.title, todo_step.duration_s, todo_step.output_summary[:200])
+        await runner._notify_renderer(
+            "on_step_done",
+            todo_step.id,
+            todo_step.title,
+            todo_step.duration_s,
+            todo_step.output_summary[:200],
+        )
     elif todo_step.status == "failed":
-        await runner._notify_renderer("on_step_failed", todo_step.id, todo_step.title, todo_step.output_summary[:200])
+        await runner._notify_renderer(
+            "on_step_failed",
+            todo_step.id,
+            todo_step.title,
+            todo_step.output_summary[:200],
+        )
 
 
 __all__ = ["notify_step_finished", "run_agent_step", "run_script_step"]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.common.types import Message
 
@@ -59,7 +59,7 @@ class PlanResumeMixin:
         runner._plan_path = _store_path(plan_store, runner._state.plan_name)
         runner._todo_path = None
         runner._reset_interrupted_steps()
-        runner._state.resume_point = f"{runner._state.phase.value}:{_first_pending_step_id(runner._state)}"
+        runner._state.resume_point = f"{runner._state.phase.value}:{_first_pending_step_id(runner._state)}"  # noqa: E501
         runner._persist_state(persist_plan=runner._state.plan is not None)
         return runner
 
@@ -143,7 +143,7 @@ class PlanResumeMixin:
 
     async def _finish_run(self) -> Message:
         try:
-            self._finish("cancelled" if self._cancelled else execution_finish_status(self._todo_state))
+            self._finish("cancelled" if self._cancelled else execution_finish_status(self._todo_state))  # noqa: E501
             await self._notify_finished()
             return self.build_exit_summary()
         finally:

@@ -33,9 +33,7 @@ class PromptCachePrefix:
 
 def build_prompt_cache_key(prefix: PromptCachePrefix) -> str:
     digest = build_cache_prefix_hash(prefix.system_prompt, prefix.tools)[:16]
-    return (
-        f"agent-studio:{_cache_key_part(prefix.provider)}:{_cache_key_part(prefix.model)}:{digest}"
-    )
+    return f"agent-studio:{_cache_key_part(prefix.provider)}:{_cache_key_part(prefix.model)}:{digest}"  # noqa: E501
 
 
 def build_cache_prefix_hash(system_prompt: str, tools: list[ToolDefinition]) -> str:
@@ -72,9 +70,7 @@ def build_llm_request(
         memory_index.match(latest_text, limit=5) if memory_index else []
     )
     prefix_hash = build_cache_prefix_hash(system_prompt, tools)
-    legacy_system = system_msg or (
-        Message(role="system", content=system_prompt) if system_prompt else None
-    )
+    legacy_system = system_msg or (Message(role="system", content=system_prompt) if system_prompt else None)  # noqa: E501
     legacy_messages = [
         *([legacy_system] if legacy_system else []),
         *skill_messages,

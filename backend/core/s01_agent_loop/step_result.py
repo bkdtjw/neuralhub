@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 _FILE_PART_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
-class StepStatus(str, Enum):
+class StepStatus(str, Enum):  # noqa: UP042
     DONE = "done"
     FAILED = "failed"
     BLOCKED = "blocked"
