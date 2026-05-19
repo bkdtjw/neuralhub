@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .plan_extract import (
     KEY_FINDING_LIMIT,
@@ -23,6 +23,7 @@ class StepContext:
     step_index: int
     total_steps: int
     completed_context: str = ""
+    previous_results: list[StepResult] = field(default_factory=list)
 
 
 def find_plan_step(plan: ExecutionPlan | None, step_id: int) -> PlanStep | None:
@@ -32,18 +33,28 @@ def find_plan_step(plan: ExecutionPlan | None, step_id: int) -> PlanStep | None:
 
 
 def build_step_context(
-    plan: ExecutionPlan | None, todo_state: TodoState | None, todo_step: TodoStep
+    plan: ExecutionPlan | None,
+    todo_state: TodoState | None,
+    todo_step: TodoStep,
+    step_results: list[StepResult] | None = None,
 ) -> StepContext | None:
     plan_step = find_plan_step(plan, todo_step.id)
     if plan_step is None or plan is None:
         return None
     index = next((idx for idx, step in enumerate(plan.steps, start=1) if step.step_id == todo_step.id), 1)
+    previous_results = list(step_results) if step_results is not None else []
+    previous_summary = (
+        previous_results[-1].result_summary
+        if previous_results
+        else previous_done_summary(todo_state, todo_step.id)
+    )
     return StepContext(
         plan_step=plan_step,
-        previous_summary=previous_done_summary(todo_state, todo_step.id),
+        previous_summary=previous_summary,
         step_index=index,
         total_steps=len(plan.steps),
         completed_context=build_completed_steps_context(todo_state, todo_step.id),
+        previous_results=previous_results,
     )
 
 
