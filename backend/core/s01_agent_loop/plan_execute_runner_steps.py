@@ -13,10 +13,10 @@ from .agent_loop import AgentLoop
 from .plan_control_store import PlanControlStore
 from .plan_convergence import ConvergenceMonitor
 from .plan_execute_errors import PlanExecuteError
-from .plan_execution_support import build_step_context, extract_step_context, find_plan_step, refresh_pending_todo_titles
+from .plan_execution_support import build_step_context, refresh_pending_todo_titles
 from .plan_models import PlanPhase, TodoStep
 from .plan_step_checkpoint import make_step_checkpoint_fn, make_step_session_id
-from .plan_step_artifacts import archive_agent_step, summary_with_archive
+from .plan_step_results import build_step_result, persist_step_result, upsert_step_result
 from .plan_step_runner import notify_step_finished, run_agent_step, run_script_step
 from .plan_step_prompt import build_step_messages
 from .plan_todo_tool import TODOUPDATE_DEFINITION, TODOUPDATE_TOOL_NAME, create_todoupdate_executor
@@ -47,6 +47,7 @@ class PlanExecuteRunnerStepsMixin:
         try:
             if self._todo_state is None:
                 return
+            self._step_results = self._step_result_store.list(self._session_id)
             index = 0
             while index < len(self._todo_state.steps):
                 self._apply_control_signal()
@@ -100,19 +101,22 @@ class PlanExecuteRunnerStepsMixin:
 
     async def _execute_step(self, todo_step: TodoStep) -> None:
         started_at = monotonic()
+        request_id = uuid4().hex
+        context: Any | None = None
+        loop: AgentLoop | None = None
         try:
             total_steps = len(self._todo_state.steps) if self._todo_state is not None else 0
             if self._renderer is not None:
                 await self._notify_renderer("on_step_start", todo_step.id, todo_step.title, total_steps)
 
-            context = build_step_context(self._plan, self._todo_state, todo_step)
+            context = build_step_context(self._plan, self._todo_state, todo_step, self._step_results)
             if context is None:
                 raise PlanExecuteError("PLAN_STEP_NOT_FOUND", f"Missing step {todo_step.id}")
 
             if context.plan_step.type == "script_step":
                 await run_script_step(self, todo_step, context.plan_step)
             else:
-                await run_agent_step(self, todo_step, context, STEP_TIMEOUT_SECONDS)
+                loop = await run_agent_step(self, todo_step, context, STEP_TIMEOUT_SECONDS)
             todo_step.status = "done"
         except TimeoutError:
             todo_step.status = "failed"
@@ -125,6 +129,11 @@ class PlanExecuteRunnerStepsMixin:
             todo_step.output_summary = str(exc)[:500]
         finally:
             todo_step.duration_s = max(round(monotonic() - started_at, 3), 0.001)
+            if context is not None:
+                active_loop = loop or self._active_step_loop
+                result = build_step_result(todo_step, context.plan_step, active_loop, request_id, self._steps_dir)
+                persist_step_result(self._step_result_store, self._session_id, result)
+                upsert_step_result(self._step_results, result)
             self._active_step_loop = None
             self._current_step_id = 0
             self._persist_state()
@@ -176,19 +185,12 @@ class PlanExecuteRunnerStepsMixin:
             context.total_steps,
             context.previous_summary,
             getattr(context, "completed_context", ""),
+            previous_results=getattr(context, "previous_results", []),
         )
         instruction = self._control.consume_instruction() if include_instruction else ""
         if instruction:
             user_message += f"\n\n## 用户补充指令\n{instruction}"
         return system_prompt, user_message
-
-    def _extract_step_context(self, todo_step: TodoStep, loop: AgentLoop) -> None:
-        plan_step = find_plan_step(self._plan, todo_step.id)
-        if plan_step is None:
-            raise PlanExecuteError("PLAN_STEP_NOT_FOUND", f"Missing step {todo_step.id}")
-        extract_step_context(todo_step, plan_step, loop, uuid4().hex)
-        path = archive_agent_step(todo_step, loop.messages, self._steps_dir)
-        todo_step.output_summary = summary_with_archive(todo_step.output_summary, path)
 
     def _reload_plan(self) -> None:
         if self._state.plan is not None:

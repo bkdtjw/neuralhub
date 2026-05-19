@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .plan_execute_runner import PlanExecuteRunner
     from .plan_renderer import PlanRenderer
     from .plan_store import PlanStore, TodoStore
+    from .step_result import StepResultStore
 
 class PlanResumeMixin:
     @classmethod
@@ -35,6 +36,7 @@ class PlanResumeMixin:
         bridge: BridgeProtocol | None = None,
         agent_spec: Any | None = None,
         owner_id: str = "",
+        step_result_store: StepResultStore | None = None,
     ) -> PlanExecuteRunner | None:
         state = checkpoint_store.load_latest(session_id)
         if state is None or state.phase in TERMINAL_PHASES:
@@ -50,6 +52,7 @@ class PlanResumeMixin:
             agent_spec=agent_spec,
             checkpoint_store=checkpoint_store,
             owner_id=owner_id or state.owner_id,
+            step_result_store=step_result_store,
         )
         runner._state = state.model_copy(deep=True)
         runner._owner_id = owner_id or runner._state.owner_id

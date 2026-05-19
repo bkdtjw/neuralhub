@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from backend.common.errors import AgentError
-from backend.common.logging import get_logger
 from backend.common.types import Message, generate_id
 from backend.common.types.llm import LLMRequest
 
 from .plan_control import PlanControlState
 from .plan_checkpoint_store import PlanCheckpointStore
 from .plan_execute_errors import PlanExecuteError
+from .plan_execute_runner_notifications import PlanExecuteRunnerNotificationsMixin
 from .plan_execute_runner_state import PlanExecuteRunnerStateMixin, checkpoint_dir_for
 from .plan_execute_runner_steps import PlanExecuteRunnerStepsMixin
 from .plan_finish import ExitSummaryInput, build_exit_summary_content, plan_status_for_finish
@@ -23,15 +23,20 @@ from .plan_renderer import PlanRenderer
 from .plan_resume import PlanResumeMixin
 from .plan_state_machine import is_terminal
 from .plan_store import PlanStore, TodoStore, generate_plan_name
+from .step_result import StepResult, StepResultStore
 
 if TYPE_CHECKING:
     from backend.adapters.base import LLMAdapter
     from backend.core.s02_tools import ToolRegistry
     from backend.core.s02_tools.mcp import BridgeProtocol
 
-logger = get_logger(component="plan_execute_runner")
 
-class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecuteRunnerStepsMixin):
+class PlanExecuteRunner(
+    PlanResumeMixin,
+    PlanExecuteRunnerStateMixin,
+    PlanExecuteRunnerNotificationsMixin,
+    PlanExecuteRunnerStepsMixin,
+):
     def __init__(
         self,
         adapter: LLMAdapter,
@@ -46,6 +51,7 @@ class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecut
         owner_id: str = "unknown",
         system_prompt: str = "",
         skill_prompt: str = "",
+        step_result_store: StepResultStore | None = None,
     ) -> None:
         self._adapter = adapter
         self._tool_registry = tool_registry
@@ -60,9 +66,9 @@ class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecut
         self._system_prompt = system_prompt
         self._skill_prompt = skill_prompt
         self._steps_dir = Path(getattr(todo_store, "_base_dir", Path("data/todos"))).parent / "steps"
-        self._state = PlanState(
-            plan_name="", session_id=self._session_id, owner_id=self._owner_id
-        )
+        self._step_result_store = step_result_store or StepResultStore(self._steps_dir)
+        self._step_results: list[StepResult] = []
+        self._state = PlanState(plan_name="", session_id=self._session_id, owner_id=self._owner_id)
         self._cancel_requested = False
         self._control = PlanControlState()
         self._approval_event: asyncio.Event = asyncio.Event()
@@ -97,11 +103,9 @@ class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecut
         self._approval_event.set()
 
     def approve(self) -> None:
-        """人工批准计划，解除 run() 的等待阻塞。"""
         self._approval_event.set()
 
     def reject(self, reason: str = "") -> None:
-        """人工拒绝计划，取消执行。"""
         self._state.error_message = reason or "Plan rejected by user"
         self._cancelled = True
         self._approval_event.set()
@@ -137,34 +141,6 @@ class PlanExecuteRunner(PlanResumeMixin, PlanExecuteRunnerStateMixin, PlanExecut
     @property
     def agent_spec(self) -> Any | None:
         return self._agent_spec
-
-    async def _notify_renderer(self, method_name: str, *args: object, **kwargs: object) -> None:
-        if self._renderer is None:
-            return
-        try:
-            method = getattr(self._renderer, method_name)
-            await method(*args, **kwargs)
-        except Exception:
-            logger.warning("plan_renderer_error", method=method_name, plan_name=self._plan_name)
-
-    async def _notify_finished(self) -> None:
-        if self._todo_state is None:
-            return
-        if self._todo_state.status == "cancelled":
-            await self._notify_renderer("on_plan_cancelled", self._plan_name, self._todo_state)
-            return
-        if self._todo_state.status == "partial_failed":
-            done = sum(1 for step in self._todo_state.steps if step.status == "done")
-            failed = sum(1 for step in self._todo_state.steps if step.status == "failed")
-            await self._notify_renderer(
-                "on_plan_partial_failed",
-                self._plan_name,
-                self._todo_state,
-                done,
-                failed,
-            )
-            return
-        await self._notify_renderer("on_plan_completed", self._plan_name, self._todo_state)
 
     async def _run_recon(self, user_message: str) -> str:
         return await run_recon(ReconInput(self._adapter, self._tool_registry, self._session_id, user_message))

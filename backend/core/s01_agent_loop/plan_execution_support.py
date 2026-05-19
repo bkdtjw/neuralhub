@@ -42,7 +42,11 @@ def build_step_context(
     if plan_step is None or plan is None:
         return None
     index = next((idx for idx, step in enumerate(plan.steps, start=1) if step.step_id == todo_step.id), 1)
-    previous_results = list(step_results) if step_results is not None else []
+    previous_results = (
+        [result for result in step_results if result.step_id < todo_step.id]
+        if step_results is not None
+        else []
+    )
     previous_summary = (
         previous_results[-1].result_summary
         if previous_results

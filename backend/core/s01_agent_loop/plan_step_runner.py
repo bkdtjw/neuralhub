@@ -11,7 +11,7 @@ from .plan_step_artifacts import archive_script_step, summary_with_archive
 from .plan_step_checkpoint import adapter_provider_name, prepare_step_checkpoint
 
 
-async def run_agent_step(runner: Any, todo_step: TodoStep, context: Any, timeout: float) -> None:
+async def run_agent_step(runner: Any, todo_step: TodoStep, context: Any, timeout: float) -> Any:
     loop = runner._build_step_loop(todo_step, context)
     runner._active_step_loop = loop
     runner._persist_state()
@@ -20,7 +20,7 @@ async def run_agent_step(runner: Any, todo_step: TodoStep, context: Any, timeout
     loop.on(monitor.on_event)
     _, user_message = runner._build_step_prompt(context)
     await asyncio.wait_for(loop.run(user_message), timeout=timeout)
-    runner._extract_step_context(todo_step, loop)
+    return loop
 
 
 async def run_script_step(runner: Any, todo_step: TodoStep, plan_step: PlanStep) -> None:
