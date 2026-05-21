@@ -28,7 +28,8 @@ async def test_recon_runs_before_planning(tmp_path) -> None:
     adapter = MockAdapter(["侦察报告: runner 实际结构", plan_json(step_count=1), "done"])
     runner = _runner(tmp_path, adapter)
     await run_with_approval(runner, "重构 runner")
-    assert "代码侦察员" in adapter.requests[0].messages[0].content
+    assert "软件架构师和规划专家" in adapter.requests[0].messages[0].content
+    assert '"steps"' in adapter.requests[0].messages[0].content
     assert "Plan & Execute 规划者" in adapter.requests[1].messages[0].content
     assert "侦察报告: runner 实际结构" in adapter.requests[1].messages[1].content
 
