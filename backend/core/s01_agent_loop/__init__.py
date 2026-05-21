@@ -3,6 +3,7 @@ from .checkpoint import CheckpointFn
 from .message_history import MessageHistory
 from .plan_checkpoint_store import PlanCheckpointStore
 from .plan_control_store import PlanControlStore
+from .plan_detail_store import DetailedPlanWrite, build_plan_report_url, save_detailed_plan
 from .plan_execute_runner import PlanExecuteRunner
 from .plan_models import (
     ExecutionPlan,
@@ -37,6 +38,7 @@ from .user_config_store import UserConfig, UserConfigStore
 __all__ = [
     "AgentLoop",
     "CheckpointFn",
+    "DetailedPlanWrite",
     "ExecutionPlan",
     "MessageHistory",
     "PLANNING_SYSTEM_PROMPT",
@@ -64,12 +66,14 @@ __all__ = [
     "UserConfigStore",
     "build_readonly_registry",
     "build_planning_messages",
+    "build_plan_report_url",
     "build_step_messages",
     "create_todoupdate_executor",
     "generate_plan_name",
     "is_readonly_bash",
     "is_terminal",
     "parse_plan_response",
+    "save_detailed_plan",
     "transition",
     "validate_transition",
 ]

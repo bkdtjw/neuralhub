@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from backend.common.types import Message
 
 from .plan_approval_wait import await_plan_approval
+from .plan_detail_store import DetailedPlanWrite, save_detailed_plan
 from .plan_execute_errors import PlanExecuteError
 from .plan_execution_plan import build_todo_state_from_plan
 from .plan_finish import execution_finish_status
@@ -121,6 +122,14 @@ class PlanResumeMixin:
         if self._cancelled:
             return False
         self._persist_state(persist_plan=True)
+        self._plan_path = save_detailed_plan(
+            DetailedPlanWrite(
+                base_dir=getattr(self._plan_store, "_base_dir", Path("data/plans")),
+                session_id=self._session_id,
+                plan_name=self._plan_name,
+                plan=self._plan,
+            )
+        )
         self._todo_state = build_todo_state_from_plan(
             self._plan_name, self._session_id, self._plan
         )
@@ -128,7 +137,7 @@ class PlanResumeMixin:
         self._set_phase(PlanPhase.PLAN_READY)
         if self._cancelled:
             return False
-        if not await self._await_plan_approval():
+        if getattr(self, "_require_confirmation", True) and not await self._await_plan_approval():
             return False
         await self._execute_existing_plan()
         return True

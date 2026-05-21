@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
+from backend.api.routes.feishu_plan_cards import build_plan_card
+from backend.core.s01_agent_loop import build_plan_report_url
 from backend.core.s01_agent_loop.plan_models import ExecutionPlan, TodoState
 from backend.core.s01_agent_loop.plan_renderer import SilentPlanRenderer
 from backend.core.s02_tools.builtin.feishu_client import FeishuClient
@@ -31,6 +34,9 @@ class FeishuPlanRenderer(SilentPlanRenderer):
         self._step_states: list[_StepState] = []
         self._final = False
         self._final_template = ""
+        self._summary = ""
+        self._risks: list[str] = []
+        self._report_url = ""
 
     @property
     def message_id(self) -> str | None:
@@ -42,6 +48,10 @@ class FeishuPlanRenderer(SilentPlanRenderer):
         self._step_states = [
             _StepState(step_id=step.step_id, title=step.title) for step in plan.steps
         ]
+        self._summary = plan.overall_summary or plan.goal
+        self._risks = plan.risks
+        report_path = Path("data/plans") / f"{self._session_id}-{plan_name}.md"
+        self._report_url = build_plan_report_url(report_path)
         card = self._build_card(show_buttons=True, status_text="等待确认")
         self._message_id = await self._client.send_card(self._chat_id, card)
 
@@ -131,49 +141,21 @@ class FeishuPlanRenderer(SilentPlanRenderer):
             return
 
     def _build_card(self, show_buttons: bool, status_text: str) -> dict:
-        elements: list[dict] = [{"tag": "markdown", "content": self._steps_markdown()}]
-        if show_buttons:
-            elements.append({"tag": "action", "actions": self._action_buttons()})
-        template = "blue"
-        if self._final:
-            template = self._final_template or "green"
+        template = self._final_template if self._final else ""
+        return build_plan_card(
+            plan_name=self._plan_name,
+            status_text=status_text,
+            steps=self._step_states,
+            button_value=self._button_value(),
+            show_buttons=show_buttons,
+            summary=self._summary,
+            risks=self._risks,
+            report_url=self._report_url,
+            final_template=template,
+        )
+
+    def _button_value(self) -> dict[str, str]:
         return {
-            "config": {"wide_screen_mode": True},
-            "header": {
-                "title": {"tag": "plain_text", "content": f"📋 {self._plan_name}"},
-                "subtitle": {"tag": "plain_text", "content": status_text},
-                "template": template,
-            },
-            "elements": elements,
-        }
-
-    def _steps_markdown(self) -> str:
-        lines: list[str] = []
-        for step in self._step_states:
-            detail = f" {step.detail}" if step.detail else ""
-            lines.append(f"{step.status} **{step.title}**{detail}")
-        return "\n".join(lines) or "暂无步骤"
-
-    def _action_buttons(self) -> list[dict]:
-        return [
-            {
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": "✅ 确认执行"},
-                "type": "primary",
-                "value": self._button_value("plan_approve"),
-            },
-            {
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": "❌ 取消"},
-                "type": "danger",
-                "value": self._button_value("plan_cancel"),
-            },
-        ]
-
-    def _button_value(self, action: str) -> dict[str, str]:
-        return {
-            "action": action,
-            "action_type": action,
             "plan_name": self._plan_name,
             "chat_id": self._chat_id,
             "owner_id": self._owner_id,

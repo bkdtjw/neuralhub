@@ -52,6 +52,7 @@ class PlanExecuteRunner(
         system_prompt: str = "",
         skill_prompt: str = "",
         step_result_store: StepResultStore | None = None,
+        require_confirmation: bool = True,
     ) -> None:
         self._adapter = adapter
         self._tool_registry = tool_registry
@@ -73,6 +74,7 @@ class PlanExecuteRunner(
         self._control = PlanControlState()
         self._approval_event: asyncio.Event = asyncio.Event()
         self._approval_timeout_seconds: float = 600.0
+        self._require_confirmation = require_confirmation
         self._checkpoint_path: Path | None = None
         self._plan_path: Path | None = None
         self._todo_path: Path | None = None
@@ -195,5 +197,4 @@ class PlanExecuteRunner(
             return self._checkpoint_path.as_posix()
         filename = f"{self._session_id}-{self._plan_name}.json"
         return (Path("data/plan_checkpoints") / filename).as_posix()
-
 __all__ = ["PlanExecuteRunner"]

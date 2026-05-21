@@ -17,6 +17,7 @@ from backend.core.s07_task_system import TaskExecutionError
 from backend.schemas.feishu import FeishuCardActionPayload
 
 from .feishu_card_approval import (
+    handle_plan_adjust,
     handle_plan_approve,
     handle_plan_cancel,
     handle_tool_approve,
@@ -124,6 +125,7 @@ async def _background_rerun(task_id: str, task_name: str) -> None:
 
 # Register handlers
 dispatcher.register("rerun", _handle_rerun)
+dispatcher.register("plan_adjust", handle_plan_adjust)
 dispatcher.register("plan_approve", handle_plan_approve)
 dispatcher.register("plan_cancel", handle_plan_cancel)
 dispatcher.register("tool_approve", handle_tool_approve)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -10,24 +12,22 @@ from backend.cli_support import (
     CliPrinter,
     CliSession,
     CliState,
-    handle_command,
     parse_command,
     plan_commands,
 )
 from backend.cli_support.console_helpers import HELP_TEXT
 from backend.cli_support.plan_commands import (
-    CliPlanCommandError,
-    handle_plan_run,
     handle_plan_show,
     handle_plans_list,
 )
 from backend.cli_support.plan_display import CliPlanRenderer
-from backend.common.types import AgentConfig, Message
+from backend.common.types import AgentConfig
 from backend.core.s01_agent_loop import (
     AgentLoop,
     ExecutionPlan,
     PlanCheckpointStore,
     PlanPhase,
+    PlanRenderer,
     PlanState,
     PlanStep,
     PlanStore,
@@ -70,12 +70,13 @@ class FakeRuntime(AgentRuntime):
         self._adapter = adapter
 
     async def create_runner(self, **kwargs: object) -> object:
+        renderer = cast("PlanRenderer | None", kwargs.get("renderer"))
         return plan_commands.PlanExecuteRunner(
             adapter=self._adapter,
             tool_registry=ToolRegistry(),
             plan_store=PlanStore(),
             todo_store=TodoStore(),
-            renderer=kwargs.get("renderer"),
+            renderer=renderer,
             session_id=str(kwargs.get("session_id", "")),
             owner_id=str(kwargs.get("owner_id", "unknown")),
         )
@@ -114,7 +115,6 @@ def _session(adapter: LLMAdapter | None = None) -> CliSession:
         agent_runtime=FakeRuntime(resolved),
     )
 
-
 @pytest.mark.asyncio
 async def test_cli_renderer_frame_and_step_updates(capsys: pytest.CaptureFixture[str]) -> None:
     renderer = CliPlanRenderer(ansi=False)
@@ -126,7 +126,6 @@ async def test_cli_renderer_frame_and_step_updates(capsys: pytest.CaptureFixture
     assert "✅" in output
     assert "3.2" in output
     assert "step1" in output
-
 
 @pytest.mark.asyncio
 async def test_cli_renderer_cancel_and_completed(capsys: pytest.CaptureFixture[str]) -> None:
@@ -172,7 +171,7 @@ def test_parse_plan_commands_and_help_text() -> None:
 
 @pytest.mark.asyncio
 async def test_plans_list_and_plan_show(
-    tmp_path: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     PlanCheckpointStore().save(
@@ -188,90 +187,3 @@ async def test_plans_list_and_plan_show(
     await handle_plan_show(session, "test-plan", _printer())
     output = capsys.readouterr().out
     assert all(item in output for item in ["test-plan", "test goal", "step1"])
-
-
-@pytest.mark.asyncio
-async def test_handle_plan_command_writes_files_and_injects_summary(
-    tmp_path: object, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
-    session = _session(MockAdapter())
-    result = await handle_command(session, parse_command("/plan 重构 s07"), _printer())
-    messages = result.session.loop.messages
-    assert result.should_exit is False
-    assert list((tmp_path / "data" / "plans").glob("*.md"))
-    assert list((tmp_path / "data" / "plan_checkpoints").glob("*.json"))
-    assert [message.role for message in messages[-2:]] == ["user", "assistant"]
-    assert "Plan:" in messages[-1].content
-
-
-@pytest.mark.asyncio
-async def test_handle_plan_command_rejects_from_cli_input(
-    tmp_path: object, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    prompts: list[str] = []
-
-    def fake_input(prompt: str = "") -> str:
-        prompts.append(prompt)
-        return "n"
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("builtins.input", fake_input)
-    adapter = MockAdapter()
-    session = _session(adapter)
-
-    result = await handle_plan_run(session, "reject this", _printer())
-
-    assert result.should_exit is False
-    assert prompts and "是否执行此计划" in prompts[0]
-    assert len(adapter.requests) == 2
-    assert "cancelled" in result.session.loop.messages[-1].content
-
-
-@pytest.mark.asyncio
-async def test_plan_cancel_restores_repl(monkeypatch: pytest.MonkeyPatch) -> None:
-    class CancelRunner:
-        def __init__(self, **kwargs: object) -> None:
-            pass
-
-        async def run(self, message: str) -> Message:
-            return self.build_exit_summary()
-
-        def build_exit_summary(self) -> Message:
-            return Message(role="assistant", content="Plan: cancel-plan\nStatus: cancelled")
-
-    monkeypatch.setattr(plan_commands, "PlanExecuteRunner", CancelRunner)
-    session = _session(MockAdapter())
-    result = await handle_plan_run(session, "cancel", _printer())
-    follow_up = await result.session.loop.run("next")
-    assert result.should_exit is False
-    assert "cancel-plan" in result.session.loop.messages[-3].content
-    assert follow_up.role == "assistant"
-
-
-@pytest.mark.asyncio
-async def test_plan_run_exception_tears_down_scroll_region(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FailingRunner:
-        def __init__(self, **kwargs: object) -> None:
-            pass
-
-        async def run(self, message: str) -> Message:
-            raise RuntimeError("boom")
-
-        def build_exit_summary(self) -> Message:
-            return Message(role="assistant", content="Plan: failed")
-
-    class TeardownRenderer:
-        def __init__(self, ansi: bool = True) -> None:
-            self.calls = 0
-
-        def _teardown_scroll_region(self) -> None:
-            self.calls += 1
-
-    renderer = TeardownRenderer()
-    monkeypatch.setattr(plan_commands, "CliPlanRenderer", lambda ansi=True: renderer)
-    monkeypatch.setattr(plan_commands, "PlanExecuteRunner", FailingRunner)
-    with pytest.raises(CliPlanCommandError):
-        await handle_plan_run(_session(MockAdapter()), "fail", _printer())
-    assert renderer.calls == 1

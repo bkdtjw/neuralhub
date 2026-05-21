@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from inspect import isawaitable
 from typing import Any
 
 from backend.schemas.feishu import FeishuCardActionPayload
@@ -27,7 +28,11 @@ async def handle_plan_approve(payload: FeishuCardActionPayload) -> dict[str, Any
     approved = bool(
         handler and getattr(handler, "approve_plan", lambda *_: False)(chat_id, plan_name, owner_id)
     )
-    content = f"计划 {plan_name} 已批准，开始执行" if approved else f"计划 {plan_name} 未找到或已结束"
+    content = (
+        f"计划 {plan_name} 已批准，开始执行"
+        if approved
+        else f"计划 {plan_name} 未找到或已结束"
+    )
     return {"toast": {"type": "info" if approved else "warning", "content": content}}
 
 
@@ -45,8 +50,27 @@ async def handle_plan_cancel(payload: FeishuCardActionPayload) -> dict[str, Any]
     cancelled = rejected or bool(
         handler and getattr(handler, "cancel_plan", lambda *_: False)(chat_id, plan_name)
     )
+    await _clear_plan_mode(handler, payload.open_id)
     content = f"计划 {plan_name} 已取消" if cancelled else f"计划 {plan_name} 未找到或已结束"
     return {"toast": {"type": "warning", "content": content}}
+
+
+async def handle_plan_adjust(payload: FeishuCardActionPayload) -> dict[str, Any]:
+    value = payload.action.value
+    plan_name = str(getattr(value, "plan_name", "") or "")
+    chat_id = str(getattr(value, "chat_id", "") or getattr(payload, "open_chat_id", "") or "")
+    owner_id = str(getattr(value, "owner_id", "") or "")
+    if not _operator_allowed(payload, owner_id):
+        return {"toast": {"type": "warning", "content": "无权调整该计划"}}
+    handler = _get_handler()
+    rejected = bool(
+        handler and getattr(handler, "reject_plan", lambda *_: False)(chat_id, plan_name, owner_id)
+    )
+    if rejected:
+        await _set_plan_mode(handler, payload.open_id)
+        await _send_adjust_prompt(handler, chat_id)
+    content = "请直接回复要调整的内容，我会重新生成计划" if rejected else "计划未找到或已结束"
+    return {"toast": {"type": "info" if rejected else "warning", "content": content}}
 
 
 async def handle_tool_approve(payload: FeishuCardActionPayload) -> dict[str, Any]:
@@ -88,6 +112,31 @@ def _operator_allowed(payload: FeishuCardActionPayload, owner_id: str) -> bool:
     return not owner_id or not payload.open_id or payload.open_id == owner_id
 
 
+async def _set_plan_mode(handler: Any, open_id: str) -> None:
+    menu_state = getattr(handler, "_menu_state", None)
+    set_mode = getattr(menu_state, "set_mode", None)
+    if callable(set_mode) and open_id:
+        await _maybe_await(set_mode(open_id, "plan_execute"))
+
+
+async def _clear_plan_mode(handler: Any, open_id: str) -> None:
+    menu_state = getattr(handler, "_menu_state", None)
+    clear_mode = getattr(menu_state, "clear_mode", None)
+    if callable(clear_mode) and open_id:
+        await _maybe_await(clear_mode(open_id))
+
+
+async def _send_adjust_prompt(handler: Any, chat_id: str) -> None:
+    send = getattr(handler, "_send_chat_text", None)
+    if callable(send) and chat_id:
+        await _maybe_await(send(chat_id, "请直接回复要调整的内容，我会重新生成计划。"))
+
+
+async def _maybe_await(value: Any) -> None:
+    if isawaitable(value):
+        await value
+
+
 async def _update_action_card(
     handler: Any,
     message_id: str,
@@ -104,6 +153,7 @@ async def _update_action_card(
 
 
 __all__ = [
+    "handle_plan_adjust",
     "handle_plan_approve",
     "handle_plan_cancel",
     "handle_tool_approve",

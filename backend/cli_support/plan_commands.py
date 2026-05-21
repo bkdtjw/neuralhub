@@ -27,10 +27,11 @@ class CliPlanCommandError(CliError):
 
 async def _cli_approval_handler(runner: PlanExecuteRunner) -> None:
     try:
-        stop_phases = {PlanPhase.AWAITING_APPROVAL, PlanPhase.EXECUTING, *TERMINAL_PHASES}
+        approval_phases = {PlanPhase.CONFIRMING, PlanPhase.AWAITING_APPROVAL}
+        stop_phases = {*approval_phases, PlanPhase.EXECUTING, *TERMINAL_PHASES}
         while getattr(runner, "phase", PlanPhase.EXECUTING) not in stop_phases:
             await asyncio.sleep(0.05)
-        if getattr(runner, "phase", None) != PlanPhase.AWAITING_APPROVAL:
+        if getattr(runner, "phase", None) not in approval_phases:
             return
         answer = await asyncio.to_thread(input, "[plan] 是否执行此计划？(y/n): ")
         if answer.strip().lower() in {"", "y", "yes"}:
@@ -196,5 +197,4 @@ async def handle_plan_show(
     except Exception:
         printer.print_info(f"[error] 计划不存在: {plan_name}")
         return CliCommandResult(session=session)
-
 __all__ = ["CliPlanCommandError", "handle_plan_run", "handle_plan_show", "handle_plans_list"]

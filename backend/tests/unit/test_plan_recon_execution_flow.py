@@ -50,4 +50,6 @@ async def test_runner_plan_file_from_recon_plan(tmp_path) -> None:
     runner = _runner(tmp_path, MockAdapter([VALID_PLAN_JSON]))
     await run_with_approval(runner, "test")
     plan_path = tmp_path / "plans" / f"{runner.plan_name}.md"
+    detail_path = tmp_path / "plans" / f"test-session-{runner.plan_name}.md"
     assert "LLM生成的目标" in plan_path.read_text(encoding="utf-8")
+    assert "## 分步执行计划" in detail_path.read_text(encoding="utf-8")

@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse
 router = APIRouter(tags=["reports"])
 
 _REPORTS_DIR = Path(os.getcwd()) / "reports"
+_PLAN_REPORTS_DIR = Path(os.getcwd()) / "data" / "plans"
 _BEIJING = ZoneInfo("Asia/Shanghai")
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
@@ -102,18 +103,28 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
+@router.get("/reports/plans/{filepath:path}", response_class=HTMLResponse)
+async def render_plan_report(filepath: str) -> HTMLResponse:
+    """Render a saved Plan markdown report."""
+    return _render_markdown_report(_PLAN_REPORTS_DIR, filepath)
+
+
 @router.get("/reports/{filepath:path}", response_class=HTMLResponse)
 async def render_report(filepath: str) -> HTMLResponse:
     """Render a markdown report file as a styled HTML page."""
+    return _render_markdown_report(_REPORTS_DIR, filepath)
+
+
+def _render_markdown_report(root: Path, filepath: str) -> HTMLResponse:
     # Security: prevent path traversal
     if ".." in filepath or filepath.startswith("/"):
         return HTMLResponse(
             _error_page("400 Bad Request", "Invalid path."), status_code=400,
         )
 
-    target = (_REPORTS_DIR / filepath).resolve()
+    target = (root / filepath).resolve()
     try:
-        target.relative_to(_REPORTS_DIR.resolve())
+        target.relative_to(root.resolve())
     except ValueError:
         return HTMLResponse(
             _error_page("403 Forbidden", "Access denied."), status_code=403,
