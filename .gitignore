@@ -46,12 +46,16 @@ mihomo-*.exe
 # Runtime artifacts
 cache.db
 .tmp/
+.tmp_fetch_diag/
 .claude/
 reports/
 task_outputs/
 .codex
 2025-01-01
+=2.0.0
 server.log
+gcm-diagnose.log
+hn.html
 mihomo.log
 tests/.tmp_proxy*/
 
