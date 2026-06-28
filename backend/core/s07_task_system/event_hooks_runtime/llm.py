@@ -48,13 +48,25 @@ def _build_prompt(request: AssessRequest) -> str:
     recent_lines = "\n".join(f"- {text.replace(chr(10), ' ')[:220]}" for text in request.recent_developments[:20])
     if not recent_lines:
         recent_lines = "（无）"
+    keywords = "、".join(request.hook.twitter.keywords) or request.hook.name
     return (
         "你是事件进展研判助手。请判断本轮信号相对旧局势是否重大、可信、值得推送。\n\n"
         f"Hook 名称：{request.hook.name}\n"
+        f"追踪主题（只关心与这些直接相关的实质进展）：{keywords}\n"
         f"旧局势摘要：{prev_summary}\n\n"
         f"本轮信号（最多 20 条）：\n{signal_lines}\n\n"
         "已报告过的进展（这些是过去已记录的，绝不要重复，只输出相对它们真正新的）：\n"
         f"{recent_lines}\n\n"
+        "===== 相关性与去噪规则（最重要，先过这一关再谈重大）=====\n"
+        "只有「直接讲述追踪主题本身的实质新进展」才算 development，例如：正式发布/上线/开放、官方公告、"
+        "新增能力或参数、价格与可用性、确切时间表、权威信源确认的事实。\n"
+        "下列一律视为噪声：materiality 给 ≤15，且绝不放进 developments：\n"
+        "1) 只是顺带提到关键词、真正主题却是别的——如出口管制/监管/政策/地缘、把它当类比或调侃、"
+        "「X 就像<主题>」之类。关键词命中 ≠ 相关。\n"
+        "2) 重复旧状态、没有变化的陈述（含「仍」「依旧」「还是」「一如既往」等）。\n"
+        "3) 传言、猜测、预测、个人观点、营销吹捧、情绪宣泄，且无权威/官方信源支撑。\n"
+        "4) 与「旧局势摘要」或「已报告过的进展」实质重复的内容。\n"
+        "判断口径：先问『这条到底在讲什么』，主题不是追踪对象本身的实质进展就剔除；宁可漏报，不要骚扰用户。\n\n"
         "请只输出 JSON，不要 markdown、不要解释。格式必须是：\n"
         '{"materiality": <0-100 整数，这条进展有多重大/可信>, '
         '"summary": "<一句中文当前局势>", '
@@ -63,9 +75,9 @@ def _build_prompt(request: AssessRequest) -> str:
         '"resolved": <bool，事件是否已收尾>}\n'
         "developments 必须是相比「旧局势摘要」和「已报告过的进展」的新增重大进展；每条一句话、提炼非照搬，"
         "按时间从新到旧排列（最新在前）。\n"
-        "若相比旧摘要没有实质新进展，developments 必须返回空数组 []；"
-        "没新东西就空，不要硬凑旧闻，这决定是否打扰用户。\n"
-        "首次（旧摘要为空或无）时，把当前最重要的几条现状作为 developments 列出。\n"
+        "若相比旧摘要没有实质新进展，或全部命中上面四类噪声，developments 必须返回空数组 []；"
+        "没新东西就空，不要硬凑旧闻或噪声，这决定是否打扰用户。\n"
+        "首次（旧摘要为空或无）时，把当前最重要的几条「真正相关」的现状作为 developments 列出，同样剔除噪声。\n"
         "拿不准、像噪声、旧闻或重复内容时，materiality 给低分。"
     )
 
