@@ -51,7 +51,7 @@ export default function Sidebar() {
   ];
 
   return (
-    <aside className="flex h-screen w-[220px] min-w-[220px] max-w-[220px] shrink-0 flex-col border-r border-[var(--as-border)] bg-[var(--as-sidebar)]">
+    <aside className="flex h-screen w-[220px] min-w-[220px] max-w-[220px] shrink-0 flex-col border-r border-white/10 bg-[var(--as-sidebar)] backdrop-blur-2xl">
       <div className="px-2.5 pb-2 pt-3">
         <div className="mb-3 flex items-center gap-2 px-1.5">
           <div className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-[linear-gradient(135deg,#3b82f6,#8b5cf6)] shadow-[0_8px_18px_rgb(59_130_246_/_18%)]">

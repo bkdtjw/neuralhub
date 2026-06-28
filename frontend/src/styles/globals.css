@@ -5,16 +5,16 @@
 @tailwind utilities;
 
 :root {
-  --as-bg: #1d1d1b;
-  --as-sidebar: #181817;
-  --as-surface-low: #20201e;
-  --as-surface: #222220;
-  --as-active: #252522;
-  --as-surface-raised: #282825;
-  --as-hover: #2b2b28;
-  --as-code-bg: #171716;
-  --as-border: #2b2b28;
-  --as-border-strong: #343431;
+  --as-bg: rgb(22 22 25 / 50%);
+  --as-sidebar: rgb(18 18 22 / 55%);
+  --as-surface-low: rgb(40 40 46 / 55%);
+  --as-surface: rgb(48 48 55 / 50%);
+  --as-active: rgb(255 255 255 / 9%);
+  --as-surface-raised: #24242a;
+  --as-hover: rgb(255 255 255 / 6%);
+  --as-code-bg: rgb(8 8 10 / 55%);
+  --as-border: rgb(255 255 255 / 9%);
+  --as-border-strong: rgb(255 255 255 / 15%);
   --as-text-bright: #e8e8ec;
   --as-text: #e4e4e7;
   --as-text-secondary: #8a8a92;
@@ -43,7 +43,12 @@ body,
 
 body {
   margin: 0;
-  background: var(--as-bg);
+  background:
+    radial-gradient(1200px 820px at 6% -10%, rgb(59 130 246 / 13%), transparent 56%),
+    radial-gradient(1040px 740px at 102% -4%, rgb(139 92 246 / 13%), transparent 54%),
+    radial-gradient(920px 920px at 82% 122%, rgb(34 197 94 / 6%), transparent 58%),
+    #161618;
+  background-attachment: fixed;
   color: var(--as-text);
   font-family: var(--font-sans);
   font-weight: 400;
@@ -153,11 +158,23 @@ select:not(:disabled) {
 
 @layer components {
   .as-select {
-    @apply rounded-[7px] border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-2.5 py-1.5 text-xs text-[var(--as-text)] outline-none hover:bg-[var(--as-hover)] focus:border-[var(--as-accent)] disabled:cursor-not-allowed disabled:text-[var(--as-text-subtle)];
+    @apply rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-xs text-[var(--as-text)] outline-none transition-colors hover:border-white/20 hover:bg-white/[0.09] focus:border-[var(--as-accent)] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .as-primary-btn {
-    @apply inline-flex items-center justify-center rounded-lg bg-[var(--as-accent)] font-medium text-white transition hover:bg-[var(--as-accent-hover)] active:brightness-90;
+    @apply inline-flex items-center justify-center rounded-lg font-medium text-white transition;
+
+    background: linear-gradient(180deg, #4f8ef7, #2563eb);
+    border: 1px solid rgb(147 197 253 / 40%);
+    box-shadow: 0 6px 18px rgb(37 99 235 / 32%), inset 0 1px 0 rgb(255 255 255 / 26%);
+  }
+
+  .as-primary-btn:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .as-primary-btn:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
   .as-input {
