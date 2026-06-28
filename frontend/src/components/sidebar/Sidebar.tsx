@@ -68,7 +68,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => void useAgentStore.getState().openFolder()}
-          className="mt-2 flex w-full items-center gap-2 rounded-lg border border-[var(--as-border-strong)] bg-[var(--as-surface)] px-2.5 py-2 text-left text-xs text-[var(--as-text-secondary)] hover:border-[#2b2b31] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+          className="mt-2 flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-left text-xs text-[var(--as-text-secondary)] transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-[var(--as-text)]"
         >
           <FolderOpen size={15} className="shrink-0 text-[var(--as-text-muted)]" />
           <span className="min-w-0 truncate">{workspaceName ?? "选择项目文件夹"}</span>
@@ -134,14 +134,16 @@ function NavItem({
       type="button"
       aria-current={active ? "page" : undefined}
       onClick={onClick}
-      className={`relative flex h-[31px] w-full items-center gap-2 rounded-md px-2.5 pl-3 text-left text-[13px] transition ${
+      className={`relative flex h-[34px] w-full items-center gap-2.5 rounded-[10px] px-3 text-left text-[13px] transition-colors duration-150 ${
         active
-          ? "bg-[var(--as-active)] text-[var(--as-text)]"
-          : "text-[var(--as-text-secondary)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+          ? "border border-white/10 bg-white/[0.08] text-[var(--as-text-bright)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          : "border border-transparent text-[var(--as-text-secondary)] hover:bg-white/[0.05] hover:text-[var(--as-text)]"
       }`}
     >
-      {active ? <span className="absolute left-0 top-1/2 h-[18px] w-[2.5px] -translate-y-1/2 rounded-full bg-[var(--as-accent)]" /> : null}
-      <Icon size={16} strokeWidth={2} className="shrink-0" />
+      {active ? (
+        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-[var(--as-accent)] shadow-[0_0_8px_var(--as-accent)]" />
+      ) : null}
+      <Icon size={16} strokeWidth={2} className={`shrink-0 ${active ? "text-[var(--as-accent)]" : ""}`} />
       <span className="truncate">{label}</span>
     </button>
   );

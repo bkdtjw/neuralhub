@@ -92,29 +92,33 @@ function TimeGroup({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs transition hover:bg-[var(--as-hover)] ${
+        className={`flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-xs transition-colors hover:bg-white/[0.05] ${
           hasActive ? "text-[var(--as-text)]" : "text-[var(--as-text-secondary)]"
         }`}
       >
         {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-        <span className="rounded-full bg-[var(--as-surface)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--as-text-subtle)] ring-1 ring-[var(--as-border)]">
+        <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] leading-none text-[var(--as-text-subtle)] ring-1 ring-white/10">
           {group.sessions.length}
         </span>
       </button>
 
       {!collapsed ? (
-        <div className="ml-2.5 border-l border-[var(--as-border)] pl-1.5">
+        <div className="ml-2.5 border-l border-white/10 pl-1.5">
           {group.sessions.map((session) => {
             const active = session.id === currentSessionId;
             return (
               <div
                 key={session.id}
-                className={`group relative flex w-full items-center rounded-md transition ${
-                  active ? "bg-[var(--as-active)] text-[var(--as-text)]" : "text-[var(--as-text-secondary)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+                className={`group relative flex w-full items-center rounded-lg border transition-colors ${
+                  active
+                    ? "border-white/10 bg-white/[0.07] text-[var(--as-text)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    : "border-transparent text-[var(--as-text-secondary)] hover:bg-white/[0.05] hover:text-[var(--as-text)]"
                 }`}
               >
-                {active ? <span className="absolute left-0 top-1/2 h-[18px] w-[2.5px] -translate-y-1/2 rounded-full bg-[var(--as-accent)]" /> : null}
+                {active ? (
+                  <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-[var(--as-accent)] shadow-[0_0_8px_var(--as-accent)]" />
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onSelect(session.id)}
