@@ -118,11 +118,11 @@ async def test_handle_message_restores_session_and_persists_full_turn() -> None:
     assert loop.messages_before_run[2].provider_metadata["thinking_blocks"][0]["thinking"] == "kept"
     assert loop._config.model == "stored-model"
     persisted = handler._store.save_messages.await_args.args[1]
-    assert [item.role for item in persisted] == ["system", "user", "assistant", "user", "assistant", "tool", "assistant"]
-    assert persisted[4].tool_calls is not None
-    assert persisted[4].tool_calls[0].name == "echo"
-    assert persisted[5].tool_results is not None
-    assert persisted[5].tool_results[0].output == "ok"
+    assert [item.role for item in persisted] == ["user", "assistant", "user", "assistant", "tool", "assistant"]
+    assert persisted[3].tool_calls is not None
+    assert persisted[3].tool_calls[0].name == "echo"
+    assert persisted[4].tool_results is not None
+    assert persisted[4].tool_results[0].output == "ok"
     handler._store.add_messages.assert_not_called()
 
 

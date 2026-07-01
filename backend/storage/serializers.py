@@ -68,6 +68,8 @@ def to_message_record(session_id: str, message: Message) -> MessageRecord:
         id=message.id,
         session_id=session_id,
         role=message.role,
+        kind=message.kind,
+        ephemeral=message.ephemeral,
         content=message.content,
         tool_calls_json=_dump_models(message.tool_calls),
         tool_results_json=_dump_models(message.tool_results),
@@ -80,6 +82,8 @@ def to_message(record: MessageRecord) -> Message:
     return Message(
         id=record.id,
         role=record.role,
+        kind=record.kind,
+        ephemeral=record.ephemeral,
         content=record.content,
         tool_calls=_load_tool_calls(record.tool_calls_json),
         tool_results=_load_tool_results(record.tool_results_json),

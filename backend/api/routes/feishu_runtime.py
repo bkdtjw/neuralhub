@@ -14,7 +14,9 @@ from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
+from backend.core.s06_context_compression import MemoryIndex
 from backend.core.system_prompt import build_system_prompt
+from backend.storage.memory_store import MemoryStore
 
 from .feishu_multi_agent_policy import (
     FEISHU_INLINE_SUB_AGENT_TOOLS,
@@ -112,8 +114,17 @@ async def build_agent_loop(
         ),
         adapter=adapter,
         tool_registry=registry,
+        memory_index=_build_memory_index(),
         owner_id=owner_id or session_id,
     )
+
+
+def _build_memory_index() -> MemoryIndex | None:
+    try:
+        return MemoryIndex(MemoryStore().load())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("feishu_memory_index_load_failed", error=str(exc))
+        return None
 
 
 def collect_tool_calls(loop: AgentLoop) -> tuple[set[str], dict[str, dict[str, Any]]]:

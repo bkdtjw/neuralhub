@@ -50,6 +50,13 @@ from .feishu_plan_decision import (
 )
 from .feishu_plan_resume import handle_plan_resume_gate
 from .feishu_plan_support import handle_plan_message, parse_plan_request, run_plan, send_chat_text
+from .feishu_session_recorder import (
+    FeishuOutboundFileRecord,
+    FeishuOutboundTextRecord,
+    FeishuRecordConfig,
+    FeishuSessionRecorder,
+    FeishuSessionRecorderError,
+)
 from .feishu_tool_approval import attach_feishu_loop_approval
 
 if TYPE_CHECKING:
@@ -157,6 +164,8 @@ class FeishuMessageHandler:
                 json.dumps({"text": text}, ensure_ascii=False),
                 receive_id_type=receive_id_type,
             )
+            if receive_id_type == "chat_id":
+                await self._record_outbound_text(receive_id, text, "feishu_send_to_user")
         except Exception as exc:
             logger.warning("feishu_send_to_user_failed", open_id=open_id, error=str(exc))
 
@@ -450,9 +459,49 @@ class FeishuMessageHandler:
                 max_tokens=16384,
                 title="飞书对话",
             )
-            await self._store.save_messages(chat_id, loop.messages)
+            await self._store.save_messages(chat_id, _messages_without_system(loop.messages))
         except Exception:
             logger.warning("feishu_message_persist_failed", chat_id=chat_id)
+
+    async def _record_outbound_text(
+        self,
+        chat_id: str,
+        text: str,
+        source: str = "feishu_outbound_text",
+    ) -> None:
+        try:
+            await FeishuSessionRecorder(self._store).record_text(
+                FeishuOutboundTextRecord(
+                    chat_id=chat_id,
+                    text=text,
+                    source=source,
+                    config=self._record_config(chat_id),
+                )
+            )
+        except FeishuSessionRecorderError as exc:
+            logger.warning("feishu_outbound_record_failed", chat_id=chat_id, error=str(exc))
+
+    async def _record_outbound_file(self, record: FeishuOutboundFileRecord) -> None:
+        try:
+            await FeishuSessionRecorder(self._store).record_file(
+                record.model_copy(update={"config": self._record_config(record.chat_id)})
+            )
+        except FeishuSessionRecorderError as exc:
+            logger.warning(
+                "feishu_outbound_file_record_failed",
+                chat_id=record.chat_id,
+                error=str(exc),
+            )
+
+    def _record_config(self, chat_id: str) -> FeishuRecordConfig:
+        loop = self._sessions.get(chat_id)
+        if loop is None:
+            return FeishuRecordConfig()
+        return FeishuRecordConfig(
+            model=loop._config.model,
+            provider=loop._config.provider,
+            system_prompt=loop._config.system_prompt,
+        )
 
     def _chat_lock(self, chat_id: str) -> asyncio.Lock:
         lock = self._chat_locks.get(chat_id)
@@ -507,6 +556,10 @@ class FeishuMessageHandler:
 
 
 _extract_text = extract_text
+
+
+def _messages_without_system(messages: list[Message]) -> list[Message]:
+    return [message for message in messages if message.role != "system"]
 
 
 __all__ = ["FeishuMessageHandler", "_extract_text"]

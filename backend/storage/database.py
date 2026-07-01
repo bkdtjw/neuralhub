@@ -21,6 +21,14 @@ _PROVIDER_ROLES_MIGRATION_SQL = (
     "ALTER TABLE providers "
     "ADD COLUMN IF NOT EXISTS roles VARCHAR(200) NOT NULL DEFAULT ''"
 )
+_MESSAGE_KIND_MIGRATION_SQL = (
+    "ALTER TABLE messages "
+    "ADD COLUMN IF NOT EXISTS kind VARCHAR(30) NOT NULL DEFAULT 'user_request'"
+)
+_MESSAGE_EPHEMERAL_MIGRATION_SQL = (
+    "ALTER TABLE messages "
+    "ADD COLUMN IF NOT EXISTS ephemeral BOOLEAN NOT NULL DEFAULT false"
+)
 _PGVECTOR_EXTENSION_SQL = "CREATE EXTENSION IF NOT EXISTS vector"
 
 
@@ -58,6 +66,8 @@ async def init_db(target_engine: AsyncEngine | None = None) -> None:
             await connection.execute(text(_PGVECTOR_EXTENSION_SQL))
             await connection.run_sync(Base.metadata.create_all)
             await connection.execute(text(_PROVIDER_ROLES_MIGRATION_SQL))
+            await connection.execute(text(_MESSAGE_KIND_MIGRATION_SQL))
+            await connection.execute(text(_MESSAGE_EPHEMERAL_MIGRATION_SQL))
     except Exception as exc:  # noqa: BLE001
         raise AgentError("DB_INIT_ERROR", str(exc)) from exc
 

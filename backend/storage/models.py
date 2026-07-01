@@ -41,6 +41,8 @@ class MessageRecord(Base):
         index=True,
     )
     role: Mapped[str] = mapped_column(String(10), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), default="user_request", nullable=False)
+    ephemeral: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
     tool_calls_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_results_json: Mapped[str | None] = mapped_column(Text, nullable=True)

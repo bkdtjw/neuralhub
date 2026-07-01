@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -7,6 +8,7 @@ import pytest
 
 from backend.api.routes import feishu_runtime
 from backend.common.types import ToolDefinition, ToolParameterSchema, ToolResult
+from backend.core.s06_context_compression import LongTermMemory, MemoryEntry
 from backend.core.system_prompt import build_system_prompt
 
 
@@ -32,6 +34,48 @@ async def test_feishu_agent_loop_has_browse_web_tool(monkeypatch: pytest.MonkeyP
 
     tool_names = {definition.name for definition in loop._executor.list_definitions()}  # noqa: SLF001
     assert "browse_web" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_feishu_agent_loop_loads_memory_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeMemoryStore:
+        def load(self) -> LongTermMemory:
+            return LongTermMemory(
+                entries=[
+                    MemoryEntry(
+                        id="m1",
+                        trigger="字幕附件",
+                        lesson="已发送过字幕附件",
+                        keywords=["字幕"],
+                        source_session="oc_1",
+                        created_at=datetime.utcnow(),
+                    )
+                ]
+            )
+
+    monkeypatch.setattr(feishu_runtime.MCPToolBridge, "sync_all", AsyncMock())
+    monkeypatch.setattr(feishu_runtime, "MemoryStore", FakeMemoryStore)
+
+    loop = await feishu_runtime.build_agent_loop(adapter=AsyncMock())
+
+    assert loop._memory_index is not None  # noqa: SLF001
+    assert loop._memory_index.match("字幕", limit=1)[0].lesson == "已发送过字幕附件"  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_feishu_agent_loop_degrades_when_memory_store_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenMemoryStore:
+        def load(self) -> LongTermMemory:
+            raise RuntimeError("memory file is invalid")
+
+    monkeypatch.setattr(feishu_runtime.MCPToolBridge, "sync_all", AsyncMock())
+    monkeypatch.setattr(feishu_runtime, "MemoryStore", BrokenMemoryStore)
+
+    loop = await feishu_runtime.build_agent_loop(adapter=AsyncMock())
+
+    assert loop._memory_index is None  # noqa: SLF001
 
 
 @pytest.mark.asyncio

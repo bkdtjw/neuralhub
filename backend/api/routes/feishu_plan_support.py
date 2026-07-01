@@ -99,6 +99,9 @@ async def resume_plan(handler: Any, chat_id: str, runner: PlanExecuteRunner) -> 
 
 async def send_chat_text(handler: Any, chat_id: str, text: str) -> None:
     await handler._client.send_message(chat_id, json.dumps({"text": text}, ensure_ascii=False))
+    recorder = getattr(handler, "_record_outbound_text", None)
+    if callable(recorder):
+        await recorder(chat_id, text, "feishu_send_chat_text")
 
 
 def _plan_result_text(runner: PlanExecuteRunner) -> str:
