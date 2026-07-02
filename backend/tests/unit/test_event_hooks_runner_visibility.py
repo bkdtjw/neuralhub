@@ -106,22 +106,37 @@ async def _run(
     return outcome, await store.get_state(hook.id), push
 
 
-async def test_numeric_only_push_below_materiality_gate_is_hidden(tmp_path: Path) -> None:
+async def test_materiality_below_user_threshold_is_hidden(tmp_path: Path) -> None:
+    # 默认门槛 60：materiality 55 未越过 → drop 且不记 timeline。
     store, hook = await _stored_hook(tmp_path)
-    outcome, state, push = await _run(store, hook, lambda _: _async_assessment(64, "Not enough"))
+    outcome, state, push = await _run(store, hook, lambda _: _async_assessment(55, "Not enough"))
 
     assert (outcome.decision, outcome.pushed, outcome.new_count, push.calls) == ("drop", False, 0, 0)
     assert state is not None
-    assert (state.timeline, state.status, state.summary, state.confidence) == ([], "stable", "Not enough", 64)
+    assert (state.timeline, state.status, state.summary) == ([], "stable", "Not enough")
+    assert state.confidence == outcome.turning_score
 
 
-async def test_llm_major_materiality_can_push_even_if_score_floor_fails(tmp_path: Path) -> None:
+async def test_high_user_threshold_blocks_material_below_gate(tmp_path: Path) -> None:
+    # 用户把门槛设到 90：materiality 86 不越过 → 不推、不记 timeline。
+    # 固化前用硬编码 80 时此例会误推——现在门槛跟随 hook.materiality。
     store, hook = await _stored_hook(tmp_path, materiality=90)
     outcome, state, push = await _run(store, hook, lambda _: _async_assessment(86, "Major turn"))
 
+    assert (outcome.decision, outcome.pushed, outcome.new_count, push.calls) == ("drop", False, 0, 0)
+    assert state is not None
+    assert (state.status, state.timeline) == ("stable", [])
+
+
+async def test_low_user_threshold_pushes_and_records_timeline(tmp_path: Path) -> None:
+    # 用户把门槛降到 40：materiality 45 越过 → 推送且记 timeline。
+    # 固化前用硬编码 80 时此例会被拦下——现在门槛跟随 hook.materiality。
+    store, hook = await _stored_hook(tmp_path, materiality=40)
+    outcome, state, push = await _run(store, hook, lambda _: _async_assessment(45, "Modest turn"))
+
     assert (outcome.decision, outcome.pushed, outcome.new_count, push.calls) == ("push", True, 1, 1)
     assert state is not None
-    assert (state.status, state.summary, len(state.timeline)) == ("escalating", "Major turn", 1)
+    assert (state.status, state.summary, len(state.timeline)) == ("escalating", "Modest turn", 1)
 
 
 async def test_assessor_receives_current_scan_and_recorded_timeline(tmp_path: Path) -> None:

@@ -29,6 +29,7 @@ from .models import (
     HookStatus,
     HookSummary,
     HookTwitterConfig,
+    RetrievalOutcome,
     SourceHealth,
     TimelineEntry,
 )
@@ -58,6 +59,7 @@ from .runner import (
     PushFn,
     RunOutcome,
     adaptive_cadence,
+    mark_scan_failed,
     run_hook,
 )
 from .scoring import ScoreBreakdown, numeric_score
@@ -94,6 +96,7 @@ __all__ = [
     "NowFn",
     "PUSH_COOLDOWN_MINUTES",
     "PushFn",
+    "RetrievalOutcome",
     "RunOutcome",
     "SOFT_FLOOR",
     "ScoreBreakdown",
@@ -112,6 +115,7 @@ __all__ = [
     "dedupe_signals",
     "filter_known_signals",
     "filter_new_entries",
+    "mark_scan_failed",
     "numeric_score",
     "retrieve_exa",
     "retrieve_twitter",

@@ -80,23 +80,42 @@ def test_visible_verdict_drops_duplicate_push_entry() -> None:
     assert (visible.decision, visible.status, visible.new_entries) == ("drop", "stable", [])
 
 
-def test_visible_verdict_requires_high_materiality() -> None:
+def test_visible_verdict_high_threshold_drops_below_user_gate() -> None:
+    # 用户门槛 90：materiality 86 未越过 → drop 且不记 timeline（新条目清空）。
     verdict = eh.HookVerdict(
         turning_score=82,
         numeric=100,
-        materiality=64,
+        materiality=86,
         status="escalating",
         decision="push",
-        summary="Numeric-only high score",
+        summary="Material but below user gate",
         new_entries=[_entry("Fresh but not material enough", "2026-06-29T13:00:00Z")],
     )
 
-    visible = eh.visible_verdict(verdict, None)
+    visible = eh.visible_verdict(verdict, None, 90)
 
     assert (visible.decision, visible.status, visible.new_entries) == ("drop", "stable", [])
 
 
+def test_visible_verdict_low_threshold_pushes_and_keeps_entries() -> None:
+    # 用户门槛 40：materiality 45 越过 → push 且保留新条目（记 timeline）。
+    verdict = eh.HookVerdict(
+        turning_score=45,
+        numeric=10,
+        materiality=45,
+        status="developing",
+        decision="soft",
+        summary="LLM sees a modest turn",
+        new_entries=[_entry("Official access restored", "2026-06-29T14:00:00Z")],
+    )
+
+    visible = eh.visible_verdict(verdict, None, 40)
+
+    assert (visible.decision, visible.status, len(visible.new_entries)) == ("push", "escalating", 1)
+
+
 def test_visible_verdict_uses_llm_materiality_not_turning_decision() -> None:
+    # 门槛参数由 hook.materiality 传入；此处默认门槛(60)下 materiality 86 越过 → push。
     verdict = eh.HookVerdict(
         turning_score=45,
         numeric=10,

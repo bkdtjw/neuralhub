@@ -101,11 +101,13 @@ async def test_retrieve_twitter_maps_lanes_matches_and_engagement() -> None:
         ),
     )
 
-    signals = await retrieve_twitter(
+    outcome = await retrieve_twitter(
         _hook(accounts=["newsdesk"], keywords=["Fable 5", "unlock"]),
         fake,
     )
+    signals = outcome.signals
 
+    assert outcome.ok is True
     assert [signal.lane for signal in signals] == ["account", "topic"]
     assert fake.queries[0].query == '(from:newsdesk) ("Fable 5" OR unlock)'
     assert fake.queries[1].query == '("Fable 5" OR unlock) min_faves:30'
@@ -137,11 +139,13 @@ async def test_retrieve_twitter_dedupes_same_tweet_id_and_keeps_account_lane() -
         ),
     )
 
-    signals = await retrieve_twitter(
+    outcome = await retrieve_twitter(
         _hook(accounts=["newsdesk"], keywords=["Fable 5"]),
         fake,
     )
+    signals = outcome.signals
 
+    assert outcome.ok is True
     assert len(signals) == 1
     assert signals[0].lane == "account"
     assert signals[0].text == "Account first"
@@ -163,11 +167,14 @@ async def test_retrieve_twitter_lane_failure_keeps_other_lane() -> None:
         fail_account=True,
     )
 
-    signals = await retrieve_twitter(
+    outcome = await retrieve_twitter(
         _hook(accounts=["newsdesk"], keywords=["Fable 5"]),
         fake,
     )
+    signals = outcome.signals
 
+    # 一条 lane 失败、一条成功 → 部分成功仍算 ok=True，信号照常返回。
+    assert outcome.ok is True
     assert len(signals) == 1
     assert signals[0].lane == "topic"
     assert signals[0].matched == ["Fable 5"]
@@ -175,13 +182,29 @@ async def test_retrieve_twitter_lane_failure_keeps_other_lane() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retrieve_twitter_all_lanes_failed_reports_not_ok() -> None:
+    # 两条 lane 都异常 → ok=False（健康灯据此翻红），信号为空。
+    fake = FakeSearch(fail_account=True, fail_topic=True)
+
+    outcome = await retrieve_twitter(
+        _hook(accounts=["newsdesk"], keywords=["Fable 5"]),
+        fake,
+    )
+
+    assert outcome.ok is False
+    assert outcome.signals == []
+
+
+@pytest.mark.asyncio
 async def test_retrieve_twitter_skips_empty_lanes() -> None:
     topic_only = FakeSearch(topic_posts=(FakeTweet(url="https://x.com/a/status/1"),))
     account_only = FakeSearch(account_posts=(FakeTweet(url="https://x.com/a/status/2"),))
 
-    await retrieve_twitter(_hook(accounts=[], keywords=["Fable 5"]), topic_only)
-    await retrieve_twitter(_hook(accounts=["newsdesk"], keywords=[]), account_only)
+    topic_outcome = await retrieve_twitter(_hook(accounts=[], keywords=["Fable 5"]), topic_only)
+    account_outcome = await retrieve_twitter(_hook(accounts=["newsdesk"], keywords=[]), account_only)
 
+    # 没有 lane 因异常失败 → ok=True。
+    assert topic_outcome.ok is True and account_outcome.ok is True
     assert len(topic_only.queries) == 1
     assert "from:" not in topic_only.queries[0].query
     assert "min_faves:30" in topic_only.queries[0].query

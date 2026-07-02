@@ -166,6 +166,48 @@ async def test_run_hook_empty_scan_skips_assessment_and_updates_scan(tmp_path: P
     assert (state.last_scanned, twitter.online, twitter.last_ok) == (NOW, True, NOW)
 
 
+class ExplodingSearch:
+    async def __call__(self, query: eh.TwitterQuery) -> Sequence[SimpleNamespace]:
+        raise RuntimeError("twitter cookies expired")
+
+
+async def test_run_hook_source_failure_marks_offline_and_keeps_last_ok(tmp_path: Path) -> None:
+    # 缺陷 B：twitter 两条 lane 全异常 → 该源 online=False；last_ok 保留最后一次成功时间不被刷新。
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"], keywords=["launch"]))
+    previous = await store.get_state(hook.id)
+    assert previous is not None
+    # 预置一次成功健康：online=True + 历史 last_ok。
+    healthy = [eh.SourceHealth(source="twitter", online=True, last_ok="2026-06-26T00:00:00Z")]
+    await store.save_state(hook.id, previous.model_copy(update={"source_health": healthy}))
+
+    outcome, state, push = await _execute(store, hook, ExplodingSearch(), _assess(_assessment()))
+
+    assert (outcome.decision, outcome.pushed, push.calls) == ("drop", False, 0)
+    assert state is not None
+    twitter = next(item for item in state.source_health if item.source == "twitter")
+    # 源故障：翻红且不写 last_ok（保持最后一次成功时间语义）。
+    assert (twitter.online, twitter.last_ok) == (False, "2026-06-26T00:00:00Z")
+    assert state.last_scanned == NOW
+
+
+async def test_run_hook_partial_source_failure_stays_online(tmp_path: Path) -> None:
+    # 缺陷 B：一条 lane 成功一条失败（部分成功）→ 源仍 online=True，last_ok 刷新到本轮。
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"], keywords=["launch"]))
+
+    class PartialSearch:
+        async def __call__(self, query: eh.TwitterQuery) -> Sequence[SimpleNamespace]:
+            if "from:" in query.query:
+                raise RuntimeError("account lane down")
+            return (_tweet("topic", "https://x.com/topic/status/9"),)
+
+    outcome, state, _ = await _execute(store, hook, PartialSearch(), _assess(_assessment()))
+
+    assert outcome.decision == "push"
+    assert state is not None
+    twitter = next(item for item in state.source_health if item.source == "twitter")
+    assert (twitter.online, twitter.last_ok) == (True, NOW)
+
+
 async def test_run_hook_push_failure_does_not_rollback_or_raise(tmp_path: Path) -> None:
     store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
     outcome, state, _ = await _execute(store, hook, FakeSearch(account_posts=_account_posts()), _assess(_assessment()), FakePush(fail=True))

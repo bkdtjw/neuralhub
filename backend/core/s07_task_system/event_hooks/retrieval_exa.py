@@ -6,7 +6,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
-from .models import EventHook, HookSignal
+from backend.common.logging import get_logger
+
+from .models import EventHook, HookSignal, RetrievalOutcome
 from .retrieval import HookRetrievalError
 
 EXA_NUM_RESULTS = 6
@@ -43,18 +45,25 @@ async def retrieve_exa(
     exa_search_fn: ExaSearchFn,
     *,
     days: int = EXA_DAYS,
-) -> list[HookSignal]:
+) -> RetrievalOutcome:
     try:
         query = build_exa_query(hook)
         if not query:
-            return []
+            return RetrievalOutcome(signals=[], ok=True)
         try:
             hits = await exa_search_fn(
                 ExaQuery(query=query, num_results=EXA_NUM_RESULTS, days=days)
             )
-        except Exception:
-            return []
-        return [_signal_from_hit(hit, hook.twitter.keywords) for hit in hits]
+        except Exception as exc:
+            get_logger(component="event_hooks_retrieval_exa").warning(
+                "event_hook_retrieval_lane_failed",
+                hook_id=hook.id,
+                lane="exa:confirm",
+                error=f"{type(exc).__name__}: {exc}"[:200],
+            )
+            return RetrievalOutcome(signals=[], ok=False)
+        signals = [_signal_from_hit(hit, hook.twitter.keywords) for hit in hits]
+        return RetrievalOutcome(signals=signals, ok=True)
     except HookRetrievalError:
         raise
     except Exception as exc:

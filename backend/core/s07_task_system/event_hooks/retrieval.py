@@ -7,7 +7,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
-from .models import EventHook, HookSignal
+from backend.common.logging import get_logger
+
+from .models import EventHook, HookSignal, RetrievalOutcome
 
 DEFAULT_DAYS = 7
 ACCOUNT_LANE_MAX = 25
@@ -65,64 +67,72 @@ async def retrieve_twitter(
     search_fn: TwitterSearchFn,
     *,
     days: int = DEFAULT_DAYS,
-) -> list[HookSignal]:
+) -> RetrievalOutcome:
     try:
-        account_signals: list[HookSignal] = []
-        topic_signals: list[HookSignal] = []
-        account_query = build_account_query(hook.twitter.accounts, hook.twitter.keywords)
-        topic_query = build_topic_query(hook.twitter.keywords, TOPIC_MIN_FAVES)
-
-        if account_query:
-            try:
-                posts = await search_fn(
-                    TwitterQuery(query=account_query, max_results=ACCOUNT_LANE_MAX, days=days)
-                )
-                account_signals = [_account_signal(post) for post in posts]
-            except Exception:
-                account_signals = []
-
-        if topic_query:
-            try:
-                posts = await search_fn(
-                    TwitterQuery(query=topic_query, max_results=TOPIC_LANE_MAX, days=days)
-                )
-                topic_signals = [
-                    _topic_signal(post, hook.twitter.keywords) for post in posts
-                ]
-            except Exception:
-                topic_signals = []
-
-        return _dedupe_signals(account_signals, topic_signals)
+        keywords = hook.twitter.keywords
+        account_query = build_account_query(hook.twitter.accounts, keywords)
+        topic_query = build_topic_query(keywords, TOPIC_MIN_FAVES)
+        account, ok_a = await _run_lane(
+            hook.id, "account", account_query, ACCOUNT_LANE_MAX, days, search_fn,
+            lambda post: _account_signal(post),
+        )
+        topic, ok_t = await _run_lane(
+            hook.id, "topic", topic_query, TOPIC_LANE_MAX, days, search_fn,
+            lambda post: _topic_signal(post, keywords),
+        )
+        # 全部被尝试的 lane 都失败才 ok=False；未启用的 lane(ok=None)不计入。
+        results = [ok for ok in (ok_a, ok_t) if ok is not None]
+        return RetrievalOutcome(signals=_dedupe_signals(account, topic), ok=any(results) or not results)
     except HookRetrievalError:
         raise
     except Exception as exc:
         raise HookRetrievalError(f"HOOK_RETRIEVAL_ERROR: {exc}") from exc
 
 
+async def _run_lane(
+    hook_id: str,
+    lane: str,
+    query: str,
+    max_results: int,
+    days: int,
+    search_fn: TwitterSearchFn,
+    to_signal: Callable[[TweetLike], HookSignal],
+) -> tuple[list[HookSignal], bool | None]:
+    # 返回 (signals, ok)。ok=None 表示该 lane 未启用（空 query），不计入健康判定。
+    if not query:
+        return [], None
+    try:
+        posts = await search_fn(TwitterQuery(query=query, max_results=max_results, days=days))
+        return [to_signal(post) for post in posts], True
+    except Exception as exc:
+        get_logger(component="event_hooks_retrieval").warning(
+            "event_hook_retrieval_lane_failed",
+            hook_id=hook_id,
+            lane=f"twitter:{lane}",
+            error=f"{type(exc).__name__}: {exc}"[:200],
+        )
+        return [], False
+
+
 def _account_signal(post: TweetLike) -> HookSignal:
     author = post.author_handle.strip().lower()
-    return HookSignal(
-        source="twitter",
-        lane="account",
-        text=post.text,
-        url=post.url,
-        author=author,
-        ts=post.created_at,
-        engagement=post.likes + post.retweets,
-        matched=[author] if author else [],
-    )
+    return _tweet_signal(post, "account", [author] if author else [])
 
 
 def _topic_signal(post: TweetLike, keywords: list[str]) -> HookSignal:
+    return _tweet_signal(post, "topic", _matched_keywords(post.text, keywords))
+
+
+def _tweet_signal(post: TweetLike, lane: str, matched: list[str]) -> HookSignal:
     return HookSignal(
         source="twitter",
-        lane="topic",
+        lane=lane,
         text=post.text,
         url=post.url,
         author=post.author_handle.strip().lower(),
         ts=post.created_at,
         engagement=post.likes + post.retweets,
-        matched=_matched_keywords(post.text, keywords),
+        matched=matched,
     )
 
 
@@ -157,12 +167,8 @@ def _tweet_id(url: str) -> str:
 
 def _matched_keywords(text: str, keywords: list[str]) -> list[str]:
     lower_text = text.lower()
-    matches = [
-        keyword.strip()
-        for keyword in keywords
-        if keyword.strip() and keyword.strip().lower() in lower_text
-    ]
-    return _dedupe(matches)
+    cleaned = (keyword.strip() for keyword in keywords)
+    return _dedupe([kw for kw in cleaned if kw and kw.lower() in lower_text])
 
 
 def _clean_account(account: str) -> str:
@@ -184,15 +190,7 @@ def _dedupe(values: list[str]) -> list[str]:
 
 
 __all__ = [
-    "ACCOUNT_LANE_MAX",
-    "DEFAULT_DAYS",
-    "HookRetrievalError",
-    "TOPIC_LANE_MAX",
-    "TOPIC_MIN_FAVES",
-    "TweetLike",
-    "TwitterQuery",
-    "TwitterSearchFn",
-    "build_account_query",
-    "build_topic_query",
-    "retrieve_twitter",
+    "ACCOUNT_LANE_MAX", "DEFAULT_DAYS", "HookRetrievalError", "TOPIC_LANE_MAX",
+    "TOPIC_MIN_FAVES", "TweetLike", "TwitterQuery", "TwitterSearchFn",
+    "build_account_query", "build_topic_query", "retrieve_twitter",
 ]

@@ -7,7 +7,6 @@ import httpx
 
 from backend.core.s02_tools.builtin.feishu_notify import _generate_sign
 from backend.core.s07_task_system.event_hooks import (
-    IMPORTANT_MATERIALITY,
     EventHook,
     HookVerdict,
     PushFn,
@@ -78,7 +77,7 @@ def _build_alert_card(hook: EventHook, verdict: HookVerdict) -> dict[str, Any]:
     lines = [
         f"**局势**：{summary}",
         f"**转机分**：{verdict.turning_score}/100",
-        f"**重要度**：{verdict.materiality}/100；推送要求：重要度 ≥ {IMPORTANT_MATERIALITY}，转机分仅供参考。",
+        f"**重要度**：{verdict.materiality}/100；推送要求：重要度 ≥ {hook.materiality}，转机分仅供参考。",
     ]
     entries = _entry_lines(verdict)
     if entries:

@@ -9,7 +9,9 @@ from .models import HookSignal, HookState, TimelineEntry
 
 TEXT_DUPLICATE_RATIO = 0.84
 TIMESTAMP_DUPLICATE_RATIO = 0.62
-IMPORTANT_MATERIALITY = 80
+# 推送门槛的兜底默认值，与 EventHook.materiality 的模型默认（60）对齐。
+# 实际路径由 runner 传入 hook.materiality，用户配置值优先，此常量仅在未显式传参时生效。
+IMPORTANT_MATERIALITY = 60
 _TWEET_RE = re.compile(r"/status(?:es)?/(\d+)")
 
 
@@ -43,8 +45,9 @@ def filter_known_signals(
 def visible_verdict(
     verdict: HookVerdict,
     state: HookState | None,
+    threshold: int = IMPORTANT_MATERIALITY,
 ) -> HookVerdict:
-    visible = verdict.materiality >= IMPORTANT_MATERIALITY
+    visible = verdict.materiality >= threshold
     entries = filter_new_entries(verdict.new_entries, state) if visible else []
     if entries:
         status = "resolved" if verdict.status == "resolved" else "escalating"

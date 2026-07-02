@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .assess import AssessFn, HookVerdict, assess_hook
 from .dedupe import dedupe_signals, visible_verdict
-from .models import EventHook, HookState, HookStatus
+from .models import EventHook, HookSignal, HookState, HookStatus
 from .retrieval_exa import ExaSearchFn, retrieve_exa
 from .retrieval import TwitterSearchFn, retrieve_twitter
 from .runner_state import (
@@ -76,6 +76,20 @@ async def run_hook(
         raise HookRunError(f"HOOK_RUN_ERROR: {exc}") from exc
 
 
+async def mark_scan_failed(hook_id: str, store: HookStore, now: str) -> None:
+    # 扫描失败后推进节奏：仅把 last_scanned 落盘，让 is_due 按 cadence 重试而非每 tick 重烧配额。
+    # 复用同一把 per-hook 锁，避免与并发的成功扫描竞态覆盖（成功扫描的完整 state 优先）。
+    try:
+        async with _HOOK_LOCKS[hook_id]:
+            prev_state = await store.get_state(hook_id)
+            base = prev_state or HookState(hook_id=hook_id)
+            await store.save_state(hook_id, base.model_copy(update={"last_scanned": now}, deep=True))
+    except HookRunError:
+        raise
+    except Exception as exc:
+        raise HookRunError(f"HOOK_MARK_SCAN_FAILED_ERROR: {exc}") from exc
+
+
 async def _run_hook_locked(
     hook: EventHook,
     store: HookStore,
@@ -87,15 +101,22 @@ async def _run_hook_locked(
     now_fn: NowFn,
 ) -> RunOutcome:
     prev_state = await store.get_state(hook.id)
-    scanned_sources: list[str] = ["twitter"] if hook.sources.twitter else []
-    signals = await retrieve_twitter(hook, twitter_search_fn) if hook.sources.twitter else []
+    scanned_sources: list[tuple[str, bool]] = []
+    signals: list[HookSignal] = []
+    if hook.sources.twitter:
+        outcome = await retrieve_twitter(hook, twitter_search_fn)
+        signals = [*signals, *outcome.signals]
+        scanned_sources.append(("twitter", outcome.ok))
     if exa_search_fn is not None and hook.sources.exa_web:
-        signals = [*signals, *await retrieve_exa(hook, exa_search_fn)]
-        scanned_sources.append("exa")
+        outcome = await retrieve_exa(hook, exa_search_fn)
+        signals = [*signals, *outcome.signals]
+        scanned_sources.append(("exa", outcome.ok))
     signals = dedupe_signals(signals)
     if not signals:
         return await _empty_outcome(hook, store, prev_state, scanned_sources, now_fn())
-    verdict = visible_verdict(await assess_hook(hook, signals, prev_state, assess_fn), prev_state)
+    verdict = visible_verdict(
+        await assess_hook(hook, signals, prev_state, assess_fn), prev_state, hook.materiality
+    )
     entries = verdict.new_entries
     current_state = prev_state
     if entries:
@@ -129,7 +150,7 @@ async def _empty_outcome(
     hook: EventHook,
     store: HookStore,
     prev_state: HookState | None,
-    scanned_sources: list[str],
+    scanned_sources: list[tuple[str, bool]],
     now: str,
 ) -> RunOutcome:
     status = prev_state.status if prev_state else "stable"
@@ -161,4 +182,5 @@ def _skipped_outcome(hook_id: str) -> RunOutcome:
 
 
 __all__ = ["CADENCE_ESCALATING", "CADENCE_RESOLVED", "CADENCE_STABLE", "HookRunError",
-           "NowFn", "PUSH_COOLDOWN_MINUTES", "PushFn", "RunOutcome", "adaptive_cadence", "run_hook"]
+           "NowFn", "PUSH_COOLDOWN_MINUTES", "PushFn", "RunOutcome", "adaptive_cadence",
+           "mark_scan_failed", "run_hook"]

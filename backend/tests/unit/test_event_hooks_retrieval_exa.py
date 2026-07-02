@@ -58,8 +58,10 @@ def test_build_exa_query_prefers_keywords_then_name() -> None:
 async def test_retrieve_exa_maps_hits_to_confirm_signals() -> None:
     fake = FakeSearch(hits=(FakeHit(),))
 
-    signals = await eh.retrieve_exa(_hook(["Fable 5", "unlock", "missing"]), fake, days=3)
+    outcome = await eh.retrieve_exa(_hook(["Fable 5", "unlock", "missing"]), fake, days=3)
+    signals = outcome.signals
 
+    assert outcome.ok is True
     assert fake.queries == [eh.ExaQuery(query="Fable 5 unlock missing", num_results=6, days=3)]
     assert len(signals) == 1
     signal = signals[0]
@@ -74,7 +76,25 @@ async def test_retrieve_exa_maps_hits_to_confirm_signals() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retrieve_exa_failure_returns_empty_list() -> None:
-    signals = await eh.retrieve_exa(_hook(["launch"]), FakeSearch(fail=True))
+async def test_retrieve_exa_failure_reports_not_ok_and_logs_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.core.s07_task_system.event_hooks import retrieval_exa
 
-    assert signals == []
+    events: list[dict[str, object]] = []
+
+    class _CaptureLogger:
+        def warning(self, event: str, **kwargs: object) -> None:
+            events.append({"event": event, **kwargs})
+
+    monkeypatch.setattr(retrieval_exa, "get_logger", lambda **_: _CaptureLogger())
+
+    outcome = await eh.retrieve_exa(_hook(["launch"]), FakeSearch(fail=True))
+
+    assert outcome.ok is False
+    assert outcome.signals == []
+    assert len(events) == 1
+    assert events[0]["event"] == "event_hook_retrieval_lane_failed"
+    assert events[0]["hook_id"] == "hook-1"
+    assert events[0]["lane"] == "exa:confirm"
+    assert "RuntimeError" in str(events[0]["error"])

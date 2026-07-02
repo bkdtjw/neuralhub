@@ -25,7 +25,7 @@ def next_state(
     current_state: HookState | None,
     verdict: HookVerdict,
     now: str,
-    scanned_sources: list[str],
+    scanned_sources: list[tuple[str, bool]],
 ) -> HookState:
     base = current_state or prev_state or HookState(hook_id=hook_id)
     prev_summary = prev_state.summary if prev_state else ""
@@ -42,11 +42,16 @@ def next_state(
     )
 
 
-def scan_health(scanned_sources: list[str], health: list[SourceHealth], now: str) -> list[SourceHealth]:
-    # 只标记本轮真正扫过的源；关闭的源不能被标成"正常"
+def scan_health(
+    scanned_sources: list[tuple[str, bool]],
+    health: list[SourceHealth],
+    now: str,
+) -> list[SourceHealth]:
+    # 只标记本轮真正扫过的源；关闭的源不能被标成"正常"。
+    # ok=False（源故障）时只翻 online 状态，不写 last_ok，保持"last_ok=最后一次成功时间"语义。
     updated = [item.model_copy(deep=True) for item in health]
-    for source in scanned_sources:
-        updated = _mark_health(updated, source, True, now)
+    for source, ok in scanned_sources:
+        updated = _mark_health(updated, source, ok, now)
     return updated
 
 

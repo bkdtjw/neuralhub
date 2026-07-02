@@ -10,6 +10,7 @@ from backend.core.s07_task_system.event_hooks import (
     HookSummary,
     RunOutcome,
     adaptive_cadence,
+    mark_scan_failed,
     run_hook,
 )
 from backend.core.s07_task_system.event_hooks_runtime import HookRuntime, HookRuntimeError
@@ -66,7 +67,17 @@ async def scan_due_hooks(
                 hook_id=summary.hook.id,
                 error=str(exc),
             )
+            await _mark_failed_best_effort(store, summary.hook.id, now_iso)
     return outcomes
+
+
+async def _mark_failed_best_effort(store: HookStore, hook_id: str, now_iso: str) -> None:
+    # 失败也推进 last_scanned，避免每 60s tick 无限重试烧配额。
+    # best-effort：自身异常也吞掉，不能让单个钩子的清理失败中断后续钩子遍历。
+    try:
+        await mark_scan_failed(hook_id, store, now_iso)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("event_hook_mark_failed_error", hook_id=hook_id, error=str(exc))
 
 
 class HookScheduler:

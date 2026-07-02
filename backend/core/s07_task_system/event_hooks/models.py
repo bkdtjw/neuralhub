@@ -103,6 +103,13 @@ class HookSignal(BaseModel):
     matched: list[str] = Field(default_factory=list)
 
 
+class RetrievalOutcome(BaseModel):
+    # 检索一个源（含多条 lane）的结果：signals 为已聚合的信号，
+    # ok 反映该源本轮是否健康（全部 lane 都异常才 ok=False，部分成功仍 ok=True）。
+    signals: list[HookSignal] = Field(default_factory=list)
+    ok: bool = True
+
+
 __all__ = [
     "Development",
     "EventHook",
@@ -113,6 +120,7 @@ __all__ = [
     "HookStatus",
     "HookSummary",
     "HookTwitterConfig",
+    "RetrievalOutcome",
     "SourceHealth",
     "TimelineEntry",
 ]

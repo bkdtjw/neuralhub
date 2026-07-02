@@ -150,6 +150,47 @@ async def test_scan_due_hooks_isolates_hook_failures(tmp_path: Path) -> None:
     assert f"push:{later.hook.name}:push" in calls
 
 
+async def test_failed_scan_advances_last_scanned_and_not_due_next_tick(tmp_path: Path) -> None:
+    # 缺陷 A：扫描失败也推进 last_scanned，避免每 60s tick 无限重试烧配额。
+    store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
+    bad = await store.create(_draft("Bad Due"))
+    # 上次扫描远早于 now（>cadence），故本轮 is_due=True。
+    await _set_state(store, bad, last_scanned="2026-06-27T01:00:00Z")
+    calls: list[str] = []
+
+    outcomes = await scan_due_hooks(store, _runtime(calls), now_fn=lambda: NOW)
+
+    # 该钩子失败（无 outcome），但 last_scanned 已推进到本轮 NOW。
+    assert outcomes == []
+    state = await store.get_state(bad.hook.id)
+    assert state is not None
+    assert state.last_scanned == NOW
+    # 下个 tick（同一 NOW 甚至几分钟后）不再 due —— 按 cadence(45min) 退避重试。
+    later_summary = eh.HookSummary(hook=bad.hook, state=state)
+    assert is_due(later_summary, NOW) is False
+    assert is_due(later_summary, "2026-06-27T02:30:00Z") is False
+
+
+async def test_failed_scan_preserves_existing_state_fields(tmp_path: Path) -> None:
+    # mark_scan_failed 只翻 last_scanned，不引入新字段、不覆盖既有 status/confidence。
+    store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
+    bad = await store.create(_draft("Bad Due"))
+    seed = await store.get_state(bad.hook.id)
+    assert seed is not None
+    await store.save_state(
+        bad.hook.id,
+        seed.model_copy(update={"status": "escalating", "confidence": 77,
+                                "summary": "Prior", "last_scanned": "2026-06-27T01:00:00Z"}),
+    )
+
+    await scan_due_hooks(store, _runtime([]), now_fn=lambda: NOW)
+
+    state = await store.get_state(bad.hook.id)
+    assert state is not None
+    assert (state.status, state.confidence, state.summary) == ("escalating", 77, "Prior")
+    assert state.last_scanned == NOW
+
+
 async def test_hook_scheduler_starts_and_stops(tmp_path: Path) -> None:
     store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
     scheduler = HookScheduler(store, _runtime([]), tick_seconds=0.01)
