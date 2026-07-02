@@ -55,8 +55,11 @@ def visible_verdict(
             update={"decision": "push", "status": status, "new_entries": entries},
             deep=True,
         )
+    # 无越过门槛的新条目：drop。resolved（收尾场景）不要求新条目达门槛，保留 assess 的 resolved
+    # 以便状态机推进到收尾；其余压平为 stable，防止 LLM 随口的 escalating/developing 在无实质进展时抖动。
+    status = "resolved" if verdict.status == "resolved" else "stable"
     return verdict.model_copy(
-        update={"decision": "drop", "status": "stable", "new_entries": []},
+        update={"decision": "drop", "status": status, "new_entries": []},
         deep=True,
     )
 

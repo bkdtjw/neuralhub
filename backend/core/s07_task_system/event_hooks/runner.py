@@ -76,6 +76,12 @@ async def run_hook(
         raise HookRunError(f"HOOK_RUN_ERROR: {exc}") from exc
 
 
+def hook_lock(hook_id: str) -> asyncio.Lock:
+    # 暴露 per-hook 锁给 scheduler 补推路径，使补推与 run_hook 对同一钩子严格串行，
+    # 避免补推的读 state→push→写 last_pushed_ts 与并发扫描交错导致双推送 / 状态覆盖。
+    return _HOOK_LOCKS[hook_id]
+
+
 async def mark_scan_failed(hook_id: str, store: HookStore, now: str) -> None:
     # 扫描失败后推进节奏：仅把 last_scanned 落盘，让 is_due 按 cadence 重试而非每 tick 重烧配额。
     # 复用同一把 per-hook 锁，避免与并发的成功扫描竞态覆盖（成功扫描的完整 state 优先）。
@@ -132,7 +138,12 @@ async def _run_hook_locked(
         except Exception:
             pushed = False
     if pushed:
-        state = state.model_copy(update={"last_pushed_ts": now}, deep=True)
+        # 成功推送：写冷却时间戳并清 pending，避免 scheduler 再补推一次。
+        state = state.model_copy(update={"last_pushed_ts": now, "pending_push": False}, deep=True)
+    elif verdict.decision == "push":
+        # 该判 push 但本轮未投出（冷却拦截 / 投递失败）：置 pending 让 scheduler 冷却过后补推，
+        # 否则 entries 已进 timeline 会被下轮研判当"已报告"永久丢弃。
+        state = state.model_copy(update={"pending_push": True}, deep=True)
     await store.save_state(hook.id, state)
 
     return RunOutcome(
@@ -183,4 +194,4 @@ def _skipped_outcome(hook_id: str) -> RunOutcome:
 
 __all__ = ["CADENCE_ESCALATING", "CADENCE_RESOLVED", "CADENCE_STABLE", "HookRunError",
            "NowFn", "PUSH_COOLDOWN_MINUTES", "PushFn", "RunOutcome", "adaptive_cadence",
-           "mark_scan_failed", "run_hook"]
+           "hook_lock", "mark_scan_failed", "run_hook"]

@@ -14,6 +14,7 @@ from backend.core.s07_task_system.event_hooks import (
     run_hook,
 )
 from backend.core.s07_task_system.event_hooks_runtime import HookRuntime, HookRuntimeError
+from backend.core.s07_task_system.event_hooks_runtime.sweep import sweep_pending_pushes
 
 logger = get_logger(component="event_hooks_scheduler")
 
@@ -124,6 +125,7 @@ class HookScheduler:
             while self._running:
                 try:
                     await scan_due_hooks(self._store, self._runtime)
+                    await sweep_pending_pushes(self._store, self._runtime)
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("event_hooks_scheduler_tick_failed", error=str(exc))
                 await asyncio.sleep(self._tick_seconds)

@@ -191,6 +191,23 @@ async def test_failed_scan_preserves_existing_state_fields(tmp_path: Path) -> No
     assert state.last_scanned == NOW
 
 
+async def test_revive_makes_resolved_hook_due_again(tmp_path: Path) -> None:
+    # 缺陷 B：resolved 钩子 cadence=0 永不 due；revive 后立即 due，状态机得以复活。
+    store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
+    created = await store.create(_draft("Resolved Hook"))
+    seed = await store.get_state(created.hook.id)
+    assert seed is not None
+    await store.save_state(created.hook.id, seed.model_copy(
+        update={"status": "resolved", "last_scanned": "2026-06-27T01:00:00Z"}))
+
+    resolved_summary = eh.HookSummary(hook=created.hook, state=await store.get_state(created.hook.id))
+    assert is_due(resolved_summary, NOW) is False  # cadence 0 → 永不 due
+
+    await store.revive(created.hook.id)
+    revived_summary = eh.HookSummary(hook=created.hook, state=await store.get_state(created.hook.id))
+    assert is_due(revived_summary, NOW) is True  # developing + last_scanned 清空 → 立即 due
+
+
 async def test_hook_scheduler_starts_and_stops(tmp_path: Path) -> None:
     store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
     scheduler = HookScheduler(store, _runtime([]), tick_seconds=0.01)

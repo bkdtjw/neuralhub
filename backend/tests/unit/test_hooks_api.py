@@ -162,6 +162,36 @@ async def test_get_missing_hook_returns_404(client: httpx.AsyncClient) -> None:
     assert response.status_code == 404
 
 
+async def test_seen_marks_timeline_read(client: httpx.AsyncClient) -> None:
+    # 缺陷 C：POST /seen 清 unseen_count，404 语义同其它接口。
+    created = await client.post("/api/hooks", json=_draft())
+    hook_id = created.json()["hook"]["id"]
+    await client.post(f"/api/hooks/{hook_id}/run")  # 产生 timeline + unseen
+
+    seen = await client.post(f"/api/hooks/{hook_id}/seen")
+    assert seen.status_code == 200
+    assert seen.json() == {"ok": True}
+    state = (await client.get(f"/api/hooks/{hook_id}")).json()["state"]
+    assert state["unseen_count"] == 0
+
+    assert (await client.post("/api/hooks/missing/seen")).status_code == 404
+
+
+async def test_revive_restores_developing_and_pending(client: httpx.AsyncClient) -> None:
+    # 缺陷 B：POST /revive 复活钩子（developing + 立即 due），404 语义同其它接口。
+    created = await client.post("/api/hooks", json=_draft())
+    hook_id = created.json()["hook"]["id"]
+
+    revive = await client.post(f"/api/hooks/{hook_id}/revive")
+    assert revive.status_code == 200
+    assert revive.json() == {"ok": True}
+    state = (await client.get(f"/api/hooks/{hook_id}")).json()["state"]
+    assert state["status"] == "developing"
+    assert state["last_scanned"] == ""
+
+    assert (await client.post("/api/hooks/missing/revive")).status_code == 404
+
+
 async def test_post_normalizes_accounts(client: httpx.AsyncClient) -> None:
     response = await client.post("/api/hooks", json=_draft(accounts=["@Polymarket"]))
 

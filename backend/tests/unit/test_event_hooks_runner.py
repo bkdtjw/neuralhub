@@ -235,6 +235,7 @@ async def test_run_hook_no_developments_leaves_timeline_without_push(tmp_path: P
 
 
 async def test_run_hook_push_cooldown_persists_entries_without_delivery(tmp_path: Path) -> None:
+    # 缺陷 A：冷却窗口内的 push 被拦下——entries 仍落 timeline，且 pending_push=True 留给 scheduler 补推。
     store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
     previous = await store.get_state(hook.id)
     assert previous is not None
@@ -242,7 +243,39 @@ async def test_run_hook_push_cooldown_persists_entries_without_delivery(tmp_path
     outcome, state, push = await _execute(store, hook, FakeSearch(account_posts=_account_posts()), _assess(_assessment(devs=1)))
     assert (outcome.decision, outcome.pushed, push.calls, outcome.new_count) == ("push", False, 0, 1)
     assert state is not None
-    assert (len(state.timeline), state.last_pushed_ts) == (1, NOW)
+    assert (len(state.timeline), state.last_pushed_ts, state.pending_push) == (1, NOW, True)
+
+
+async def test_run_hook_successful_push_clears_pending(tmp_path: Path) -> None:
+    # 缺陷 A：成功推送清 pending_push 并写 last_pushed_ts，避免 scheduler 再补推一次。
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
+    previous = await store.get_state(hook.id)
+    assert previous is not None
+    # 预置一条历史 pending（模拟上一轮冷却拦下）+ 早于冷却窗的 last_pushed_ts，使本轮可推。
+    await store.save_state(hook.id, previous.model_copy(
+        update={"pending_push": True, "last_pushed_ts": "2026-06-27T00:00:00Z"}))
+    outcome, state, push = await _execute(store, hook, FakeSearch(account_posts=_account_posts()), _assess(_assessment(devs=1)))
+    assert (outcome.decision, outcome.pushed, push.calls) == ("push", True, 1)
+    assert state is not None
+    assert (state.last_pushed_ts, state.pending_push) == (NOW, False)
+
+
+async def test_run_hook_delivery_failure_sets_pending_for_retry(tmp_path: Path) -> None:
+    # 缺陷 A：投递失败（非冷却）同样置 pending_push，让 scheduler 后续补推而非丢告警。
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
+    outcome, state, _ = await _execute(store, hook, FakeSearch(account_posts=_account_posts()), _assess(_assessment(devs=1)), FakePush(fail=True))
+    assert (outcome.decision, outcome.pushed) == ("push", False)
+    assert state is not None
+    assert (state.last_pushed_ts, state.pending_push) == ("", True)
+
+
+async def test_run_hook_drop_does_not_set_pending(tmp_path: Path) -> None:
+    # 缺陷 A 边界：decision=drop（未越门槛）不应置 pending_push——补推只针对被拦下的 push。
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"], materiality=90))
+    outcome, state, _ = await _execute(store, hook, FakeSearch(account_posts=_account_posts()), _assess(_assessment(materiality=50, devs=1)))
+    assert outcome.decision == "drop"
+    assert state is not None
+    assert state.pending_push is False
 
 
 @pytest.mark.parametrize(

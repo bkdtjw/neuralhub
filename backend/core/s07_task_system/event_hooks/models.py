@@ -71,6 +71,9 @@ class HookState(BaseModel):
     source_health: list[SourceHealth] = Field(default_factory=list)
     last_scanned: str = ""
     last_pushed_ts: str = ""
+    # 冷却期内被拦下的重大进展标记：置 True 让 scheduler 在冷却过后补推，避免永久丢告警。
+    # Pydantic 默认值保证旧持久化数据兼容；wire 自动带出，前端不消费也无害。
+    pending_push: bool = False
 
 
 class HookSummary(BaseModel):

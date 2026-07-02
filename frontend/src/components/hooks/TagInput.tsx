@@ -23,6 +23,9 @@ export default function TagInput({ values, onChange, placeholder, prefix }: TagI
   };
 
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    // IME 组词中（拼音候选未确认）：放行本次 keydown，交给输入法确认候选词，
+    // 绝不 preventDefault / commit，否则会吞掉选词并把半成品拼音提交成 tag。
+    if (event.nativeEvent.isComposing || event.key === "Process") return;
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
       commit();

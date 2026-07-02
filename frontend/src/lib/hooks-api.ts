@@ -151,6 +151,9 @@ export const hooksApi = {
     request(`/api/hooks/${encodeURIComponent(id)}`, { method: "DELETE" }),
   run: (id: string): Promise<unknown> =>
     request(`/api/hooks/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  markSeen: async (id: string): Promise<void> => {
+    await request(`/api/hooks/${encodeURIComponent(id)}/seen`, { method: "POST" });
+  },
   log: async (id: string): Promise<TimelineEntry[]> => {
     const res = await request<{ entries: TimelineWire[] }>(`/api/hooks/${encodeURIComponent(id)}/log`);
     return (res.entries ?? []).map(toTimeline);

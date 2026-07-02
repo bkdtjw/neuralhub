@@ -167,9 +167,54 @@ async def test_append_timeline_sorts_newest_first_truncates_and_counts(tmp_path:
     assert [entry.text for entry in state.timeline[:2]] == ["twitter-newer", "104"]
     assert state.timeline[-1].ts == "2026-06-27T00:06:00Z"
     assert all(entry.is_new for entry in state.timeline)
-    assert state.unseen_count == 107
+    # 缺陷 C：unseen 只数截断后仍存留的新条目。首轮 2 条 + 次轮 105 条新条目，合并 107 → 截断至 100：
+    # 尾部 7 条（garbage + 最旧 6 条 exa）被挤掉，其中 6 条是本轮新条目落榜，故新增计入 99，累计 2+99=101。
+    assert state.unseen_count == 101
     assert state.last_scanned == "2026-06-27T00:00:00Z"
     assert all(entry.text != "garbage" for entry in state.timeline)
+
+
+async def test_mark_seen_clears_unseen_and_is_new_flags(tmp_path: Path) -> None:
+    # 缺陷 C：标已读入口——unseen_count 清零、每条 timeline is_new=False，并落盘。
+    store = _store(tmp_path)
+    created = await store.create(_draft())
+    await store.append_timeline(created.hook.id, [
+        TimelineEntry(ts="2026-06-27T01:00:00Z", text="a", source="twitter"),
+        TimelineEntry(ts="2026-06-27T02:00:00Z", text="b", source="twitter"),
+    ])
+    before = await store.get_state(created.hook.id)
+    assert before is not None
+    assert before.unseen_count == 2 and all(entry.is_new for entry in before.timeline)
+
+    seen = await store.mark_seen(created.hook.id)
+
+    assert seen is not None
+    assert seen.unseen_count == 0
+    assert all(entry.is_new is False for entry in seen.timeline)
+    # 落盘生效：重新读取仍为已读。
+    reloaded = await store.get_state(created.hook.id)
+    assert reloaded is not None and reloaded.unseen_count == 0
+    assert all(entry.is_new is False for entry in reloaded.timeline)
+    assert await store.mark_seen("missing") is None
+
+
+async def test_revive_resets_status_scan_and_pending(tmp_path: Path) -> None:
+    # 缺陷 B：复活入口——resolved→developing、清 last_scanned（立即 due）、清 pending_push。
+    store = _store(tmp_path)
+    created = await store.create(_draft())
+    seed = await store.get_state(created.hook.id)
+    assert seed is not None
+    await store.save_state(created.hook.id, seed.model_copy(update={
+        "status": "resolved", "last_scanned": "2026-06-27T00:00:00Z",
+        "pending_push": True, "summary": "已收尾"}))
+
+    revived = await store.revive(created.hook.id)
+
+    assert revived is not None
+    assert (revived.status, revived.last_scanned, revived.pending_push) == ("developing", "", False)
+    # 不动其它字段：summary 保留。
+    assert revived.summary == "已收尾"
+    assert await store.revive("missing") is None
 
 
 async def test_blank_name_is_rejected() -> None:

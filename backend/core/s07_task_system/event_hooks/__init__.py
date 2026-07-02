@@ -59,6 +59,7 @@ from .runner import (
     PushFn,
     RunOutcome,
     adaptive_cadence,
+    hook_lock,
     mark_scan_failed,
     run_hook,
 )
@@ -115,6 +116,7 @@ __all__ = [
     "dedupe_signals",
     "filter_known_signals",
     "filter_new_entries",
+    "hook_lock",
     "mark_scan_failed",
     "numeric_score",
     "retrieve_exa",

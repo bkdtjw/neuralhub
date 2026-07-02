@@ -105,6 +105,30 @@ async def run_hook_now(request: Request, hook_id: str) -> HookOkResponse:
         raise _server_error("HOOK_RUN_ERROR", str(exc)) from exc
 
 
+@router.post("/{hook_id}/seen", response_model=HookOkResponse)
+async def mark_hook_seen(request: Request, hook_id: str) -> HookOkResponse:
+    try:
+        if await _store(request).mark_seen(hook_id) is None:
+            raise _not_found()
+        return HookOkResponse(ok=True)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _server_error("HOOK_SEEN_ERROR", str(exc)) from exc
+
+
+@router.post("/{hook_id}/revive", response_model=HookOkResponse)
+async def revive_hook(request: Request, hook_id: str) -> HookOkResponse:
+    try:
+        if await _store(request).revive(hook_id) is None:
+            raise _not_found()
+        return HookOkResponse(ok=True)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _server_error("HOOK_REVIVE_ERROR", str(exc)) from exc
+
+
 @router.get("/{hook_id}/log", response_model=HookLogResponse)
 async def get_hook_log(request: Request, hook_id: str) -> HookLogResponse:
     try:

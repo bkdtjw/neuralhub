@@ -139,6 +139,32 @@ async def test_low_user_threshold_pushes_and_records_timeline(tmp_path: Path) ->
     assert (state.status, state.summary, len(state.timeline)) == ("escalating", "Modest turn", 1)
 
 
+async def test_resolved_low_materiality_reaches_resolved_without_entries(tmp_path: Path) -> None:
+    # 缺陷 B：低 materiality 的收尾（status_hint=resolved）不达门槛也应推进到 resolved，
+    # 而非被 else 分支硬编码压平成 stable——否则状态机永远到不了收尾、cadence 也归不了 0。
+    store, hook = await _stored_hook(tmp_path, materiality=60)
+    resolved = eh.Assessment(
+        materiality=30, summary="事件已收尾", status_hint="resolved",
+        developments=[eh.Development(text="官方确认结束", source="twitter")],
+    )
+    outcome, state, push = await _run(store, hook, lambda _: _wrap(resolved))
+
+    # 未越门槛：drop 且不投递；但状态保留 resolved，cadence 归 0（停扫）。
+    assert (outcome.decision, outcome.pushed, push.calls) == ("drop", False, 0)
+    assert (outcome.status, outcome.next_cadence_minutes) == ("resolved", 0)
+    assert state is not None
+    assert (state.status, state.timeline) == ("resolved", [])
+
+
+async def test_nonresolved_low_materiality_still_flattens_to_stable(tmp_path: Path) -> None:
+    # 缺陷 B 边界：无 resolved 提示、未越门槛时仍压平为 stable，防止 LLM 随口的状态在无实质进展时抖动。
+    store, hook = await _stored_hook(tmp_path, materiality=90)
+    outcome, state, _ = await _run(store, hook, lambda _: _async_assessment(50, "仍在发酵"))
+    assert (outcome.decision, outcome.status) == ("drop", "stable")
+    assert state is not None
+    assert state.status == "stable"
+
+
 async def test_assessor_receives_current_scan_and_recorded_timeline(tmp_path: Path) -> None:
     store, hook = await _stored_hook(tmp_path)
     await store.append_timeline(hook.id, [eh.TimelineEntry(ts=NOW, text="Already shown", source="twitter")])
@@ -153,3 +179,7 @@ async def test_assessor_receives_current_scan_and_recorded_timeline(tmp_path: Pa
 
 async def _async_assessment(materiality: int, summary: str) -> eh.Assessment:
     return _assessment(materiality, summary)
+
+
+async def _wrap(assessment: eh.Assessment) -> eh.Assessment:
+    return assessment
