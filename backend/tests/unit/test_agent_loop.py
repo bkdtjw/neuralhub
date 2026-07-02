@@ -124,20 +124,40 @@ async def test_run_raises_on_max_iterations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_abort_interrupts_loop() -> None:
-    async def no_op(_: dict[str, object]) -> ToolResult:
+async def test_stale_abort_does_not_cancel_next_run() -> None:
+    loop = AgentLoop(
+        AgentConfig(model="test-model"),
+        MockAdapter([LLMResponse(content="hello")]),
+        ToolRegistry(),
+    )
+    loop.abort()
+    result = await loop.run("go")
+    assert result.content == "hello"
+
+
+@pytest.mark.asyncio
+async def test_abort_during_run_interrupts_then_next_run_recovers() -> None:
+    loop_holder: dict[str, AgentLoop] = {}
+
+    async def aborting_tool(_: dict[str, object]) -> ToolResult:
+        loop_holder["loop"].abort()
         return ToolResult(tool_call_id="tc_1", output="ok")
 
     registry = ToolRegistry()
-    registry.register(_tool_def("echo"), no_op)
+    registry.register(_tool_def("echo"), aborting_tool)
     loop = AgentLoop(
         AgentConfig(model="test-model", max_iterations=2),
-        MockAdapter([LLMResponse(content="", tool_calls=[ToolCall(id="tc_1", name="echo", arguments={})])]),
+        MockAdapter([
+            LLMResponse(content="", tool_calls=[ToolCall(id="tc_1", name="echo", arguments={})]),
+            LLMResponse(content="final"),
+        ]),
         registry,
     )
-    loop.abort()
+    loop_holder["loop"] = loop
     with pytest.raises(AgentError, match="LOOP_ABORTED"):
         await loop.run("stop")
+    result = await loop.run("retry")
+    assert result.content == "final"
 
 
 @pytest.mark.asyncio

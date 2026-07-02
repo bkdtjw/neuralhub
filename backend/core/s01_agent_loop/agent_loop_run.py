@@ -40,10 +40,8 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
         {"session_id": _session_id, "model": loop._config.model, "provider": loop._config.provider},
     ) as run_span:
         try:
-            was_aborted = loop._aborted
+            # 残留的中断标志只可能来自上一次"停止"，清零即可，不应中断本次新任务
             loop._aborted = False
-            if was_aborted:
-                raise AgentError(code="LOOP_ABORTED", message="Agent loop aborted")
             loop._ensure_system_message()
             await loop._append_message(Message(role="user", content=user_message))
             logger.info(
@@ -189,6 +187,10 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
             patch_orphan_tool_calls(loop._history.raw_messages)
             await loop._history.checkpoint_from(existing_count)
             raise
+        finally:
+            # task.cancel() 抛出的 CancelledError 不经过上面的 except，
+            # 必须在 finally 里复位，否则残留标志会误杀下一次 run
+            loop._aborted = False
 
 
 __all__ = ["run_agent_loop"]
