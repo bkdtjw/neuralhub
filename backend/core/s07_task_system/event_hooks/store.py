@@ -120,8 +120,9 @@ class HookStore:
                     combined = sorted(marked + state.timeline, key=lambda e: parse_ts(e.ts), reverse=True)[:_MAX_TIMELINE]
                     # 只数截断后仍存留的新条目：被 [:_MAX_TIMELINE] 挤掉的不计入，与可见 timeline 语义一致。
                     kept_new = sum(1 for entry in combined if entry in marked)
-                    update = {"timeline": combined, "unseen_count": state.unseen_count + kept_new,
-                              "last_scanned": marked[0].ts or utc_now()}
+                    # 不写 last_scanned：entry.ts 是 LLM 给的进展事件时间（非扫描时刻），
+                    # 写进去会污染 due 判定。last_scanned 统一由 runner 的 next_state/empty/mark_scan_failed 写扫描时刻。
+                    update = {"timeline": combined, "unseen_count": state.unseen_count + kept_new}
                     state = state.model_copy(update=update, deep=True)
                     self._states[hook_id] = state
                     if self._persistence:

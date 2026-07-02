@@ -8,7 +8,9 @@ from .assess import HookVerdict
 from .models import HookSignal, HookState, TimelineEntry
 
 TEXT_DUPLICATE_RATIO = 0.84
-TIMESTAMP_DUPLICATE_RATIO = 0.62
+# 同分钟共享时间戳只是弱信号（同轮抓取多条不同短句常撞同一 ts），门槛须高，
+# 否则两条不同短句（实测 ratio 0.75）会被误判重复而丢弃。
+TIMESTAMP_DUPLICATE_RATIO = 0.9
 # 推送门槛的兜底默认值，与 EventHook.materiality 的模型默认（60）对齐。
 # 实际路径由 runner 传入 hook.materiality，用户配置值优先，此常量仅在未显式传参时生效。
 IMPORTANT_MATERIALITY = 60
@@ -105,7 +107,10 @@ def _url_key(url: str) -> str:
     if match:
         return f"tweet:{match.group(1)}"
     path = parsed.path.rstrip("/").lower()
-    return f"url:{parsed.netloc.lower()}{path}"
+    # query 参数常承载唯一标识（如 watch?v=AAAA），必须进键，否则不同视频被误判同条；
+    # 不排序参数，同来源同页 query 串一致即可；fragment 继续忽略（仅页内锚点，不改内容）。
+    query = f"?{parsed.query}" if parsed.query else ""
+    return f"url:{parsed.netloc.lower()}{path}{query}"
 
 
 def _same_signal(first: HookSignal, second: HookSignal) -> bool:
@@ -137,10 +142,13 @@ def _text_match(
     if _numbers(first_text) != _numbers(second_text):
         return False
     ratio = SequenceMatcher(None, first, second).ratio()
-    if _same_minute(first_ts, second_ts):
-        return ratio >= TIMESTAMP_DUPLICATE_RATIO
-    if first_source and first_source == second_source:
-        return ratio >= TEXT_DUPLICATE_RATIO
+    # 重复 = 任一信号成立的并集。同源(0.84)是比"共享同一分钟时间戳"(0.9)更强的信号，
+    # 故同分钟不得把门槛压到同源之下——否则同轮共享 ts 的不同短句(ratio≈0.75)会被误合并。
+    same_source = bool(first_source and first_source == second_source)
+    if same_source and ratio >= TEXT_DUPLICATE_RATIO:
+        return True
+    if _same_minute(first_ts, second_ts) and ratio >= TIMESTAMP_DUPLICATE_RATIO:
+        return True
     return ratio >= 0.92
 
 

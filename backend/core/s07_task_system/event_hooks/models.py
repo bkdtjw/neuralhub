@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 HookStatus = Literal["developing", "stable", "escalating", "resolved"]
+
+# 注入面收窄：单项 ≤60 字、列表 ≤20 项、名称 ≤80 字，在 422 层拒绝超长/超量输入。
+_HookTerm = Annotated[str, StringConstraints(max_length=60)]
+_MAX_TERMS = 20
+_MAX_NAME = 80
 
 
 def _clean_name(value: str) -> str:
@@ -15,20 +20,20 @@ def _clean_name(value: str) -> str:
 
 
 class HookTwitterConfig(BaseModel):
-    accounts: list[str] = Field(default_factory=list)
-    keywords: list[str] = Field(default_factory=list)
+    accounts: list[_HookTerm] = Field(default_factory=list, max_length=_MAX_TERMS)
+    keywords: list[_HookTerm] = Field(default_factory=list, max_length=_MAX_TERMS)
 
 
 class HookSources(BaseModel):
     twitter: bool = True
     exa_web: bool = True
-    zhipu_search: bool = True
+    zhipu_search: bool = False  # 暂未接入检索实现，默认关闭以免显示幽灵源健康灯
     youtube: bool = False
 
 
 class EventHook(BaseModel):
     id: str
-    name: str
+    name: str = Field(max_length=_MAX_NAME)
     twitter: HookTwitterConfig
     sources: HookSources
     cadence_minutes: int = Field(default=45, ge=1)
@@ -82,7 +87,7 @@ class HookSummary(BaseModel):
 
 
 class HookDraft(BaseModel):
-    name: str
+    name: str = Field(max_length=_MAX_NAME)
     twitter: HookTwitterConfig
     sources: HookSources
     cadence_minutes: int = Field(default=45, ge=1)

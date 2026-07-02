@@ -176,9 +176,11 @@ def _clean_account(account: str) -> str:
 
 
 def _format_keyword(keyword: str) -> str:
-    if any(char.isspace() for char in keyword):
-        return f'"{keyword}"'
-    return keyword
+    # 内嵌双引号会破坏引号包裹的查询串，先剥除；含空格/含 `:`(如 since:2026-01-01 注入查询语法)/
+    # 以 `-`(排除操作符)开头的词整体加引号，失去 X 操作符语义，作为字面短语检索。
+    cleaned = keyword.replace('"', "")
+    needs_quote = any(c.isspace() for c in cleaned) or ":" in cleaned or cleaned.startswith("-")
+    return f'"{cleaned}"' if needs_quote else cleaned
 
 
 def _dedupe(values: list[str]) -> list[str]:

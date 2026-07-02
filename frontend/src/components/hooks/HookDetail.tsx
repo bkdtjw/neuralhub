@@ -111,20 +111,26 @@ function Timeline({ entries }: { entries: TimelineEntry[] }) {
 
 function Confidence({ value, materiality }: { value: number; materiality: number }) {
   const clamped = Math.min(100, Math.max(0, value));
+  const mark = Math.min(100, Math.max(0, materiality));
   return (
     <div className="as-glass-inset rounded-xl p-3.5">
       <div className="flex items-center justify-between text-xs text-[var(--as-text-muted)]">
         <span>置信度</span>
         <span className="font-mono text-base tabular-nums text-[var(--as-text-bright)]">{clamped}</span>
       </div>
-      <div className="relative mt-2.5 h-2 rounded-full bg-black/30">
+      {/* overflow-hidden 收住渐变填充圆头；门槛竖线用 -translate-x-1/2 居中于门槛点，
+          再夹到 [1px, 100%-1px] 让 0/100 边界的 2px 线体贴合不溢出条外。 */}
+      <div className="relative mt-2.5 h-2 overflow-hidden rounded-full bg-black/30">
         <div
           className="h-full rounded-full bg-[linear-gradient(90deg,#38bdf8,#6366f1)] shadow-[0_0_10px_rgba(99,102,241,0.5)]"
           style={{ width: `${clamped}%` }}
         />
-        <div className="absolute -top-1 h-4 w-0.5 rounded bg-white/70 shadow-[0_0_6px_rgba(255,255,255,0.5)]" style={{ left: `${materiality}%` }} />
+        <div
+          className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded bg-white/70 shadow-[0_0_6px_rgba(255,255,255,0.5)]"
+          style={{ left: `clamp(1px, ${mark}%, calc(100% - 1px))` }}
+        />
       </div>
-      <div className="mt-2 text-[10px] leading-relaxed text-[var(--as-text-muted)]">竖线=推送门槛 {materiality}，越过才推飞书</div>
+      <div className="mt-2 text-[10px] leading-relaxed text-[var(--as-text-muted)]">竖线=推送门槛 {mark}，越过才推飞书</div>
     </div>
   );
 }

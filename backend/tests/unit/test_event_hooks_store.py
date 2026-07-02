@@ -74,7 +74,8 @@ async def test_create_normalizes_accounts_and_initializes_state(tmp_path: Path) 
     assert summary.state.hook_id == summary.hook.id
     assert summary.state.status == "developing"
     assert summary.state.summary == "尚未扫描"
-    assert [health.source for health in summary.state.source_health] == ["twitter", "exa", "zhipu"]
+    # zhipu 默认关闭（暂未接入检索实现），健康灯只显 twitter/exa。
+    assert [health.source for health in summary.state.source_health] == ["twitter", "exa"]
 
 
 async def test_list_summaries_returns_created_hooks(tmp_path: Path) -> None:
@@ -170,7 +171,9 @@ async def test_append_timeline_sorts_newest_first_truncates_and_counts(tmp_path:
     # 缺陷 C：unseen 只数截断后仍存留的新条目。首轮 2 条 + 次轮 105 条新条目，合并 107 → 截断至 100：
     # 尾部 7 条（garbage + 最旧 6 条 exa）被挤掉，其中 6 条是本轮新条目落榜，故新增计入 99，累计 2+99=101。
     assert state.unseen_count == 101
-    assert state.last_scanned == "2026-06-27T00:00:00Z"
+    # append_timeline 不再写 last_scanned（entry.ts 是进展事件时间，非扫描时刻）：保持默认空串，
+    # 扫描时刻统一由 runner 的 next_state/empty/mark_scan_failed 写入。
+    assert state.last_scanned == ""
     assert all(entry.text != "garbage" for entry in state.timeline)
 
 

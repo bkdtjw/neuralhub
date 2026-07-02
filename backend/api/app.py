@@ -33,6 +33,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     task_scheduler = None
     try:
+        if app_settings.auth_secret == "change-me-in-production":
+            logger.warning(
+                "auth_secret_is_default",
+                hint="AUTH_SECRET 仍为默认占位值，生产环境请设置 AUTH_SECRET 环境变量",
+            )
         await init_db()
         await init_redis()
         await init_metrics()

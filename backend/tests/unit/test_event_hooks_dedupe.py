@@ -60,6 +60,36 @@ def test_dedupe_signals_collapses_same_tweet_url() -> None:
     assert len(eh.dedupe_signals(signals)) == 1
 
 
+def test_dedupe_signals_keeps_distinct_query_string_urls() -> None:
+    # 不同 v= 视频（youtube.com/watch?v=...）query 承载唯一标识，不得被 url 键误合并。
+    signals = [
+        eh.HookSignal(source="youtube", lane="topic", text="Fable 5 keynote part one",
+                      url="https://youtube.com/watch?v=AAAA", ts="2026-06-27T12:00:00Z"),
+        eh.HookSignal(source="youtube", lane="topic", text="Totally other clip about pandas",
+                      url="https://youtube.com/watch?v=BBBB", ts="2026-06-27T12:00:00Z"),
+    ]
+
+    assert len(eh.dedupe_signals(signals)) == 2
+
+
+def test_dedupe_signals_same_minute_distinct_shorts_not_merged() -> None:
+    # 同轮共享同一分钟时间戳、来自不同源的两条不同短句，相似度落在旧 0.62 之上、新 0.9 之下：
+    # 旧阈值会误判重复而丢弃，上调到 0.9 后不再误合并。
+    from difflib import SequenceMatcher
+
+    ratio = SequenceMatcher(None, "rocketlaunchslipstofriday", "rocketlaunchslipstosunday").ratio()
+    assert 0.62 <= ratio < 0.9  # 恰落在旧 TIMESTAMP_DUPLICATE_RATIO(0.62) 与新(0.9) 之间
+
+    signals = [
+        eh.HookSignal(source="twitter", lane="topic", text="Rocket launch slips to Friday",
+                      url="", ts="2026-06-27T12:57:03Z"),
+        eh.HookSignal(source="exa", lane="topic", text="Rocket launch slips to Sunday",
+                      url="", ts="2026-06-27T12:57:41Z"),
+    ]
+
+    assert len(eh.dedupe_signals(signals)) == 2
+
+
 def test_visible_verdict_drops_duplicate_push_entry() -> None:
     state = eh.HookState(
         hook_id="hook-1",

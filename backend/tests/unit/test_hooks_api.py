@@ -199,6 +199,20 @@ async def test_post_normalizes_accounts(client: httpx.AsyncClient) -> None:
     assert response.json()["hook"]["twitter"]["accounts"] == ["polymarket"]
 
 
+async def test_post_rejects_oversized_name_keywords_accounts(client: httpx.AsyncClient) -> None:
+    # 注入面收窄：超长名称 / 超长单项 / 超量列表都在 422 层被拒。
+    too_long_name = _draft()
+    too_long_name["name"] = "n" * 81
+    long_keyword = _draft()
+    long_keyword["twitter"]["keywords"] = ["k" * 61]
+    too_many_accounts = _draft()
+    too_many_accounts["twitter"]["accounts"] = [f"acct{index}" for index in range(21)]
+
+    for payload in (too_long_name, long_keyword, too_many_accounts):
+        response = await client.post("/api/hooks", json=payload)
+        assert response.status_code == 422
+
+
 async def test_run_without_runtime_returns_503(
     client_without_runtime: httpx.AsyncClient,
 ) -> None:

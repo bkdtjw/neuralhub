@@ -2,12 +2,13 @@ import { type FormEvent, useState } from "react";
 import { X } from "lucide-react";
 
 import TagInput from "@/components/hooks/TagInput";
+import { Choice, Field } from "@/components/hooks/HookFormFields";
 import type { HookDraft, HookSources, HookSummary } from "@/types/hooks";
 
 const DEFAULT_DRAFT: HookDraft = {
   name: "",
   twitter: { accounts: [], keywords: [] },
-  sources: { twitter: true, exaWeb: true, zhipuSearch: true, youtube: false },
+  sources: { twitter: true, exaWeb: true, zhipuSearch: false, youtube: false },
   cadenceMinutes: 40,
   materiality: 60,
   enabled: true,
@@ -25,12 +26,16 @@ const MATERIALITY_PRESETS = [
   { label: "什么都要", hint: "灵敏", value: 40 },
 ];
 
-const SOURCE_KEYS: { key: keyof HookSources; label: string }[] = [
+// muted：当前后端尚无检索实现，诚实标注"（未接入）"但不禁用（后端仍接受该配置）。
+const SOURCE_KEYS: { key: keyof HookSources; label: string; muted?: boolean }[] = [
   { key: "twitter", label: "X 推文" },
   { key: "exaWeb", label: "Exa 权威确认" },
-  { key: "zhipuSearch", label: "智谱中文网搜" },
-  { key: "youtube", label: "YouTube" },
+  { key: "zhipuSearch", label: "智谱中文网搜（未接入）", muted: true },
+  { key: "youtube", label: "YouTube（未接入）", muted: true },
 ];
+
+// 账号与后端一致地归一（去 @ 已在 TagInput 内做），关键词字段不传保持原样。
+const lower = (value: string): string => value.toLowerCase();
 
 const fromSummary = (summary: HookSummary): HookDraft => ({
   name: summary.hook.name,
@@ -104,6 +109,7 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
             onChange={(accounts) => patch({ twitter: { ...draft.twitter, accounts } })}
             placeholder="polymarket、anthropicai…"
             prefix="@"
+            normalize={lower}
           />
         </Field>
 
@@ -117,16 +123,17 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
 
         <Field label="补充数据源">
           <div className="flex flex-wrap gap-2">
-            {SOURCE_KEYS.map(({ key, label }) => {
+            {SOURCE_KEYS.map(({ key, label, muted }) => {
               const on = draft.sources[key];
               return (
                 <button
                   key={key}
                   type="button"
                   onClick={() => patch({ sources: { ...draft.sources, [key]: !on } })}
+                  title={muted ? "当前无检索实现，配置会保存但暂不生效" : undefined}
                   className={`rounded-[10px] border px-3 py-1.5 text-xs transition-colors duration-150 ${
                     on ? "border-sky-400/40 bg-sky-500/20 text-sky-100" : "border-white/10 bg-white/[0.03] text-[var(--as-text-muted)] hover:bg-white/[0.06]"
-                  }`}
+                  } ${muted && !on ? "opacity-60" : ""}`}
                 >
                   {label}
                 </button>
@@ -136,11 +143,21 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
         </Field>
 
         <Field label="扫描节奏" hint="多久自动扫一次">
-          <Choice options={CADENCE_PRESETS} value={draft.cadenceMinutes} onPick={(value) => patch({ cadenceMinutes: value })} />
+          <Choice
+            options={CADENCE_PRESETS}
+            value={draft.cadenceMinutes}
+            onPick={(value) => patch({ cadenceMinutes: value })}
+            currentLabel={(v) => `当前 ${v} 分钟`}
+          />
         </Field>
 
         <Field label="打扰门槛" hint="越过门槛才推飞书，平时只进看板">
-          <Choice options={MATERIALITY_PRESETS} value={draft.materiality} onPick={(value) => patch({ materiality: value })} />
+          <Choice
+            options={MATERIALITY_PRESETS}
+            value={draft.materiality}
+            onPick={(value) => patch({ materiality: value })}
+            currentLabel={(v) => `当前 ${v}`}
+          />
         </Field>
 
         <label className="mb-4 flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--as-text-secondary)]">
@@ -159,49 +176,6 @@ export default function HookForm({ initial, onClose, onSubmit }: HookFormProps) 
           </button>
         </div>
       </form>
-    </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="mb-4">
-      <div className="mb-1.5 flex items-baseline gap-2">
-        <span className="text-sm text-[var(--as-text)]">{label}</span>
-        {hint ? <span className="text-[11px] text-[var(--as-text-muted)]">{hint}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Choice({
-  options,
-  value,
-  onPick,
-}: {
-  options: { label: string; hint: string; value: number }[];
-  value: number;
-  onPick: (value: number) => void;
-}) {
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      {options.map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onPick(option.value)}
-            className={`rounded-xl border px-2 py-2 text-center transition-colors duration-150 ${
-              active ? "border-sky-400/40 bg-sky-500/15" : "border-white/8 bg-white/[0.03] hover:bg-white/[0.06]"
-            }`}
-          >
-            <div className={`text-xs ${active ? "text-sky-100" : "text-[var(--as-text)]"}`}>{option.label}</div>
-            <div className="text-[10px] text-[var(--as-text-muted)]">{option.hint}</div>
-          </button>
-        );
-      })}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -98,6 +99,23 @@ async def test_x_search_handles_login_failure(monkeypatch: pytest.MonkeyPatch) -
     result = await execute({"query": "Claude Code"})
     assert result.is_error is True
     assert "X/Twitter 登录失败" in result.output
+
+
+@pytest.mark.asyncio
+async def test_x_search_concurrent_first_build_logs_in_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 并发首建：模块级锁 + 锁内二次判定，保证只 login 一次、只建一个客户端。
+    x_client, _ = load_modules(monkeypatch)
+    FakeClient.search_response = FakeResult([])
+    config = _make_config(x_client)
+
+    await asyncio.gather(
+        x_client.search_x_posts("Claude Code", config),
+        x_client.search_x_posts("Claude Code", config),
+        x_client.search_x_posts("Claude Code", config),
+    )
+
+    assert len(FakeClient.login_calls) == 1
+    assert len(FakeClient.init_args) == 1
 
 
 @pytest.mark.asyncio

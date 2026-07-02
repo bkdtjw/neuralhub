@@ -6,13 +6,17 @@ interface TagInputProps {
   onChange: (values: string[]) => void;
   placeholder?: string;
   prefix?: string; // 例如博主输入显示 "@"
+  // 与后端归一保持一致（如账号统一 lower），避免保存后 chips 突然合并变样；
+  // 去重比较也用归一后的值。不传则保持原样。
+  normalize?: (value: string) => string;
 }
 
-export default function TagInput({ values, onChange, placeholder, prefix }: TagInputProps) {
+export default function TagInput({ values, onChange, placeholder, prefix, normalize }: TagInputProps) {
   const [draft, setDraft] = useState("");
 
   const add = (raw: string) => {
-    const value = raw.trim().replace(/^@+/, "");
+    const stripped = raw.trim().replace(/^@+/, "");
+    const value = normalize ? normalize(stripped) : stripped;
     if (!value || values.includes(value)) return;
     onChange([...values, value]);
   };

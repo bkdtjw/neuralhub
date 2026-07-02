@@ -28,6 +28,13 @@ class XRateLimitError(XClientError):
 _cached_client: Client | None = None
 _cached_config_hash = ""
 _cached_loop_id: int | None = None
+# 缓存判定→构建(含 login+写 cookies 文件)非原子，并发首建会双 login/竞写文件；按事件循环各持一把锁
+# 串行化该临界区(本模块支持多 loop，锁不能跨 loop 复用)。
+_client_locks: dict[int, asyncio.Lock] = {}
+
+
+def _client_lock() -> asyncio.Lock:
+    return _client_locks.setdefault(id(asyncio.get_running_loop()), asyncio.Lock())
 
 
 async def search_x_posts(
@@ -81,18 +88,22 @@ async def _get_client(config: XClientConfig) -> Client:
         loop_id = id(asyncio.get_running_loop())
         if _cached_client and _cached_config_hash == config_hash and _cached_loop_id == loop_id:
             return _cached_client
-        if _cached_client and _cached_loop_id != loop_id:
-            await _close_cached_client(_cached_client)
-        client = _create_twikit_client(config)
-        await client.login(
-            auth_info_1=auth_info_1,
-            auth_info_2=auth_info_2,
-            password=config.password,
-            cookies_file=config.cookies_file,
-        )
-        _dedupe_client_cookies(client)
-        _cached_client, _cached_config_hash, _cached_loop_id = client, config_hash, loop_id
-        return client
+        async with _client_lock():
+            # 锁内二次判定：等锁期间他人可能已建好同配置客户端，避免重复 login / 竞写 cookie 文件。
+            if _cached_client and _cached_config_hash == config_hash and _cached_loop_id == loop_id:
+                return _cached_client
+            if _cached_client and _cached_loop_id != loop_id:
+                await _close_cached_client(_cached_client)
+            client = _create_twikit_client(config)
+            await client.login(
+                auth_info_1=auth_info_1,
+                auth_info_2=auth_info_2,
+                password=config.password,
+                cookies_file=config.cookies_file,
+            )
+            _dedupe_client_cookies(client)
+            _cached_client, _cached_config_hash, _cached_loop_id = client, config_hash, loop_id
+            return client
     except Exception as exc:
         raise _normalize_login_error(exc) from exc
 

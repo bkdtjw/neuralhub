@@ -78,6 +78,16 @@ def test_query_builders_format_account_and_topic_lanes() -> None:
     assert topic_query == '("Fable 5" OR unlock) min_faves:30'
 
 
+def test_query_builder_escapes_operators_and_quotes() -> None:
+    # 内嵌双引号剥除；含 `:` 与以 `-` 开头的词整体加引号，失去 X 查询操作符语义。
+    query = build_topic_query(['say "hi"', "since:2026-01-01", "-scam"], 30)
+
+    assert query == '("say hi" OR "since:2026-01-01" OR "-scam") min_faves:30'
+    # account lane 的 topic 子句同样走 _format_keyword。
+    account = build_account_query(["axios"], ["since:2026-01-01"])
+    assert account == '(from:axios) ("since:2026-01-01")'
+
+
 @pytest.mark.asyncio
 async def test_retrieve_twitter_maps_lanes_matches_and_engagement() -> None:
     fake = FakeSearch(

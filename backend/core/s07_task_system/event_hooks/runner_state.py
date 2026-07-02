@@ -12,7 +12,13 @@ PUSH_COOLDOWN_MINUTES = 30
 
 
 def adaptive_cadence(status: str, base_minutes: int) -> int:
-    return CADENCE_RESOLVED if status == "resolved" else base_minutes
+    if status == "resolved":
+        return CADENCE_RESOLVED
+    # escalating（局势升级）提频：取用户 base 与 CADENCE_ESCALATING 的较小值，
+    # 既加密扫描又不会比用户配置更慢。其余状态沿用用户 base。
+    if status == "escalating":
+        return min(base_minutes, CADENCE_ESCALATING)
+    return base_minutes
 
 
 def utc_now() -> str:

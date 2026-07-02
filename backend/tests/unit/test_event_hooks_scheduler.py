@@ -208,6 +208,31 @@ async def test_revive_makes_resolved_hook_due_again(tmp_path: Path) -> None:
     assert is_due(revived_summary, NOW) is True  # developing + last_scanned 清空 → 立即 due
 
 
+async def test_slow_hook_times_out_and_advances_last_scanned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # per-hook 时间预算：慢钩子超时按失败路径处理（推进 last_scanned），不拖住整个 tick。
+    from backend.core.s07_task_system.event_hooks_runtime import scheduler as scheduler_module
+
+    monkeypatch.setattr(scheduler_module, "HOOK_RUN_BUDGET_SECONDS", 0.05)
+    store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
+    slow = await store.create(_draft("Slow Due"))
+    await _set_state(store, slow, last_scanned="2026-06-27T01:00:00Z")
+
+    async def slow_search(query: eh.TwitterQuery) -> list[SimpleNamespace]:
+        await asyncio.sleep(1.0)  # 远超预算，将被超时取消
+        return [_tweet()]
+
+    runtime = _runtime([])
+    runtime = runtime.model_copy(update={"twitter_search_fn": slow_search})
+
+    outcomes = await scan_due_hooks(store, runtime, now_fn=lambda: NOW)
+
+    assert outcomes == []  # 慢钩子无 outcome
+    state = await store.get_state(slow.hook.id)
+    assert state is not None and state.last_scanned == NOW  # 失败路径推进扫描时刻
+
+
 async def test_hook_scheduler_starts_and_stops(tmp_path: Path) -> None:
     store = eh.HookStore(path=str(tmp_path / "event_hooks.json"))
     scheduler = HookScheduler(store, _runtime([]), tick_seconds=0.01)

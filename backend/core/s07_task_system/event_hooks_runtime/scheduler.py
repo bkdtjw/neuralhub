@@ -18,6 +18,10 @@ from backend.core.s07_task_system.event_hooks_runtime.sweep import sweep_pending
 
 logger = get_logger(component="event_hooks_scheduler")
 
+# 单钩子 run_hook 时间预算：慢源/慢 LLM 不得把整个 tick 拖住数十分钟。
+# 超时按失败路径处理（推进 last_scanned，下轮按 cadence 退避重试）。
+HOOK_RUN_BUDGET_SECONDS = 240.0
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -53,15 +57,23 @@ async def scan_due_hooks(
         try:
             if not is_due(summary, now_iso):
                 continue
-            outcome = await run_hook(
-                summary.hook,
-                store,
-                twitter_search_fn=runtime.twitter_search_fn,
-                assess_fn=runtime.assess_fn,
-                push_fn=runtime.push_fn,
-                exa_search_fn=runtime.exa_search_fn,
-            )
+            async with asyncio.timeout(HOOK_RUN_BUDGET_SECONDS):
+                outcome = await run_hook(
+                    summary.hook,
+                    store,
+                    twitter_search_fn=runtime.twitter_search_fn,
+                    assess_fn=runtime.assess_fn,
+                    push_fn=runtime.push_fn,
+                    exa_search_fn=runtime.exa_search_fn,
+                )
             outcomes.append(outcome)
+        except TimeoutError:
+            logger.warning(
+                "event_hook_scan_timeout",
+                hook_id=summary.hook.id,
+                budget_seconds=HOOK_RUN_BUDGET_SECONDS,
+            )
+            await _mark_failed_best_effort(store, summary.hook.id, now_iso)
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "event_hook_scan_failed",

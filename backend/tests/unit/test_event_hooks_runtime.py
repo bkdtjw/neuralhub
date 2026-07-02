@@ -236,6 +236,21 @@ async def test_push_fn_raises_when_webhook_body_code_nonzero(
     assert "19001" in str(exc_info.value)
 
 
+async def test_alert_card_sanitizes_at_all_and_markdown_links() -> None:
+    # summary 与 entry.text 里的 `<at ...>` 与 `](` 被断开，防 @全员 / 钓鱼链接注入。
+    verdict = eh.HookVerdict(
+        turning_score=91, numeric=92.0, materiality=90, status="escalating",
+        decision="push", summary="ping <at user_id=all></at> now",
+        new_entries=[eh.TimelineEntry(ts="2026-06-27T00:01:00Z",
+                                      text="click [here](https://evil.example) fast", source="twitter")],
+    )
+
+    content = push_module._build_alert_card(_hook(), verdict)["elements"][0]["content"]
+
+    assert "<at" not in content and "＜at" in content
+    assert "](" not in content and "]（" in content
+
+
 async def test_build_hook_runtime_wires_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
     def fake_twitter(x_config: XClientConfig) -> str: captured["x_config"] = x_config; return "twitter"

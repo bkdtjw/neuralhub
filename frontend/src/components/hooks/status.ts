@@ -31,11 +31,31 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export const sourceLabel = (source: string): string => SOURCE_LABEL[source] ?? source;
 
-// "2026-06-27T09:12:00Z" → "06-27 17:12"（本地时区）；非法输入原样返回。
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Twitter legacy 时间串（如 "Fri Jun 27 09:12:00 +0000 2026"）在 Safari/Firefox 的
+// new Date() 返回 Invalid Date。纯函数解析：月名映射 + 时区偏移 → UTC epoch(ms)；
+// 不匹配返回 null，交由调用方兜底。
+const parseLegacyTwitter = (ts: string): number | null => {
+  const m = ts.match(/^\w{3} (\w{3}) (\d{2}) (\d{2}):(\d{2}):(\d{2}) ([+-]\d{4}) (\d{4})$/);
+  if (!m) return null;
+  const month = MONTHS.indexOf(m[1]);
+  if (month < 0) return null;
+  const [, , day, hh, mm, ss, tz, year] = m;
+  const offsetMin = (tz[0] === "-" ? -1 : 1) * (Number(tz.slice(1, 3)) * 60 + Number(tz.slice(3, 5)));
+  const utc = Date.UTC(Number(year), month, Number(day), Number(hh), Number(mm), Number(ss));
+  return utc - offsetMin * 60_000; // 减去偏移得到真正的 UTC 时刻
+};
+
+// "2026-06-27T09:12:00Z" → "06-27 17:12"（本地时区）；兼容 Twitter legacy 串；仍失败原样返回。
 export const formatTs = (ts: string): string => {
   if (!ts) return "—";
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return ts;
+  let date = new Date(ts);
+  if (Number.isNaN(date.getTime())) {
+    const legacy = parseLegacyTwitter(ts);
+    if (legacy === null) return ts;
+    date = new Date(legacy);
+  }
   const pad = (n: number): string => String(n).padStart(2, "0");
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };

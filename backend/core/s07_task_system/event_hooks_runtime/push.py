@@ -71,9 +71,15 @@ def _check_webhook_response(resp: Any) -> None:
         raise HookRuntimeError(f"HOOK_RUNTIME_PUSH_DELIVERY_FAILED: code={code} msg={msg}")
 
 
+def _sanitize_md(text: str) -> str:
+    # 进卡片 lark_md 的动态文本最小转义：防 `<at ...>` @全员、防 `[text](url)` 钓鱼链接注入。
+    # 只断这两处结构，其余字符原样保留可读性。
+    return text.replace("<at", "＜at").replace("](", "]（")
+
+
 def _build_alert_card(hook: EventHook, verdict: HookVerdict) -> dict[str, Any]:
     status = verdict.status
-    summary = verdict.summary or "（无摘要）"
+    summary = _sanitize_md(verdict.summary or "（无摘要）")
     lines = [
         f"**局势**：{summary}",
         f"**转机分**：{verdict.turning_score}/100",
@@ -94,7 +100,7 @@ def _build_alert_card(hook: EventHook, verdict: HookVerdict) -> dict[str, Any]:
 
 def _entry_lines(verdict: HookVerdict) -> list[str]:
     return [
-        f"- [{entry.source}] {entry.text[:220]}"
+        f"- [{entry.source}] {_sanitize_md(entry.text[:220])}"
         for entry in verdict.new_entries[:3]
     ]
 
