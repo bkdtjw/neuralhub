@@ -26,16 +26,18 @@ def make_push_fn(
         try:
             card = _build_alert_card(hook, verdict)
             if feishu_client and chat_id:
-                await feishu_client.send_message(
+                payload = await feishu_client.send_message(
                     chat_id=chat_id,
                     content=json.dumps(card, ensure_ascii=False),
                     msg_type="interactive",
                 )
+                _check_client_payload(payload)
                 return
             if webhook_url:
                 body = _build_webhook_body(card, webhook_secret)
                 async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-                    await client.post(webhook_url, json=body)
+                    resp = await client.post(webhook_url, json=body)
+                _check_webhook_response(resp)
                 return
             _logger().warning("event_hook_push_channel_missing", hook_id=hook.id)
         except HookRuntimeError:
@@ -44,6 +46,30 @@ def make_push_fn(
             raise HookRuntimeError(f"HOOK_RUNTIME_PUSH_ERROR: {exc}") from exc
 
     return push
+
+
+def _check_client_payload(payload: Any) -> None:
+    # 飞书 client 在 code!=0（机器人被移出群/chat_id 失效/无权限）时不抛错，只返回 payload。
+    code = payload.get("code") if isinstance(payload, dict) else None
+    if code == 0:
+        return
+    msg = payload.get("msg", "") if isinstance(payload, dict) else ""
+    raise HookRuntimeError(f"HOOK_RUNTIME_PUSH_DELIVERY_FAILED: code={code} msg={msg}")
+
+
+def _check_webhook_response(resp: Any) -> None:
+    # 飞书 webhook 常返回 HTTP 200 + body 里 code/StatusCode!=0（签名错/频控）。
+    resp.raise_for_status()
+    try:
+        body = resp.json()
+    except Exception:
+        return
+    if not isinstance(body, dict):
+        return
+    code = body.get("code", body.get("StatusCode", 0))
+    if code not in (0, None):
+        msg = body.get("msg", body.get("StatusMessage", ""))
+        raise HookRuntimeError(f"HOOK_RUNTIME_PUSH_DELIVERY_FAILED: code={code} msg={msg}")
 
 
 def _build_alert_card(hook: EventHook, verdict: HookVerdict) -> dict[str, Any]:

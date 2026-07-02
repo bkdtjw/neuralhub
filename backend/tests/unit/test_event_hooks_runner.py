@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from backend.core.s07_task_system import event_hooks as eh
+from backend.core.s07_task_system.event_hooks_runtime import HookRuntimeError
 
 pytestmark = pytest.mark.asyncio
 NOW = "2026-06-27T01:02:03Z"
@@ -207,3 +209,107 @@ async def test_run_hook_push_cooldown_persists_entries_without_delivery(tmp_path
 )
 async def test_adaptive_cadence_branches(status: eh.HookStatus, expected: int) -> None:
     assert eh.adaptive_cadence(status, 45) == expected
+
+
+async def test_run_hook_push_delivery_failure_keeps_last_pushed_unwritten(tmp_path: Path) -> None:
+    # 投递失败（push.py 把 code!=0 变成 HookRuntimeError）经 runner 后：pushed=False 且不写 last_pushed_ts，
+    # 否则冷却会误吞后续告警。
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
+
+    async def failing_push(_hook: eh.EventHook, _verdict: eh.HookVerdict) -> None:
+        raise HookRuntimeError("HOOK_RUNTIME_PUSH_DELIVERY_FAILED: code=19001 msg=bot removed")
+
+    outcome = await eh.run_hook(
+        hook, store, twitter_search_fn=FakeSearch(account_posts=_account_posts()),
+        assess_fn=_assess(_assessment()), push_fn=failing_push, now_fn=lambda: NOW,
+    )
+    state = await store.get_state(hook.id)
+    assert (outcome.decision, outcome.pushed) == ("push", False)
+    assert state is not None
+    assert (len(state.timeline), state.last_pushed_ts) == (3, "")
+
+
+@dataclass
+class GatedPush:
+    started: asyncio.Event
+    release: asyncio.Event
+    calls: int = 0
+
+    async def __call__(self, hook: eh.EventHook, verdict: eh.HookVerdict) -> None:
+        self.calls += 1
+        self.started.set()
+        await self.release.wait()
+
+
+class OrderTrackingStore:
+    # 包装真实 store，记录 get_state / save_state 调用顺序，用于断言两次扫描被串行化。
+    def __init__(self, inner: eh.HookStore, events: list[str]) -> None:
+        self._inner = inner
+        self._events = events
+
+    async def get_state(self, hook_id: str):  # type: ignore[no-untyped-def]
+        self._events.append("get_state")
+        return await self._inner.get_state(hook_id)
+
+    async def save_state(self, hook_id: str, state):  # type: ignore[no-untyped-def]
+        self._events.append("save_state")
+        return await self._inner.save_state(hook_id, state)
+
+    def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+        return getattr(self._inner, name)
+
+
+@dataclass
+class SwitchingAssess:
+    # 每次调用返回不同的 development，使两次扫描都各自会判为 push——
+    # 从而把第二次的 pushed=False 归因唯一锁定在冷却（而非去重降级为 drop）上。
+    results: list[eh.Assessment]
+    index: int = 0
+
+    async def __call__(self, request: eh.AssessRequest) -> eh.Assessment:
+        assert request.hook.id
+        result = self.results[min(self.index, len(self.results) - 1)]
+        self.index += 1
+        return result
+
+
+async def test_run_hook_concurrent_same_hook_serialized_no_double_push(tmp_path: Path) -> None:
+    store, hook = await _stored_hook(tmp_path, _draft(accounts=["newsdesk"]))
+    events: list[str] = []
+    tracked = OrderTrackingStore(store, events)
+    push = GatedPush(started=asyncio.Event(), release=asyncio.Event())
+    search = FakeSearch(account_posts=_account_posts())
+    # 两轮各带一条独立高重要度进展：均独立判 push，第二次唯一的拦截理由只能是冷却。
+    assess = SwitchingAssess(results=[
+        _assessment(summary="First round", devs=0).model_copy(update={
+            "developments": [eh.Development(text="Alpha breaking", ts="2026-06-27T00:10:00Z", source="twitter")]}),
+        _assessment(summary="Second round", devs=0).model_copy(update={
+            "developments": [eh.Development(text="Beta breaking", ts="2026-06-27T00:20:00Z", source="twitter")]}),
+    ])
+
+    def run() -> "asyncio.Future[eh.RunOutcome]":
+        return asyncio.ensure_future(
+            eh.run_hook(hook, tracked, twitter_search_fn=search,
+                        assess_fn=assess, push_fn=push, now_fn=lambda: NOW)
+        )
+
+    first = run()
+    await push.started.wait()  # 第一次已进入锁内并挂在 push 上
+    second = run()
+    await asyncio.sleep(0.05)  # 给第二次机会去抢跑（应被锁挡住）
+    # 第二次此时不得读取 state —— 只应有第一次那一次 get_state。
+    assert events.count("get_state") == 1
+    push.release.set()
+    out1, out2 = await asyncio.gather(first, second)
+
+    # 严格串行：第一次整段(get_state...save_state)结束后第二次才 get_state。
+    assert events == ["get_state", "save_state", "get_state", "save_state"]
+    # 两次都判 push，但只投递一次——第二次读到刷新后的 last_pushed_ts 被冷却拦截。
+    assert (out1.decision, out2.decision) == ("push", "push")
+    assert push.calls == 1
+    assert (out1.pushed, out2.pushed) == (True, False)
+    # timeline 无丢失：两条独立进展都在，第二次没有用旧快照抹掉第一次。
+    final = await store.get_state(hook.id)
+    assert final is not None
+    texts = {entry.text for entry in final.timeline}
+    assert texts == {"Alpha breaking", "Beta breaking"} and final.last_pushed_ts == NOW

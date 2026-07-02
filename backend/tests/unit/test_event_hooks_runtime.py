@@ -81,8 +81,22 @@ class FakeFeishuClient:
         return {"code": 0}
 
 
+class FakeResponse:
+    def __init__(self, *, status_code: int = 200, body: dict[str, Any] | None = None) -> None:
+        self.status_code = status_code
+        self._body = body if body is not None else {"code": 0}
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self) -> dict[str, Any]:
+        return self._body
+
+
 class FakeAsyncClient:
     captured: dict[str, Any] = {}
+    response: FakeResponse = FakeResponse()
 
     def __init__(self, *, timeout: float, trust_env: bool) -> None:
         self.captured.update({"timeout": timeout, "trust_env": trust_env})
@@ -93,9 +107,9 @@ class FakeAsyncClient:
     async def __aexit__(self, *args: object) -> None:
         return None
 
-    async def post(self, url: str, json: dict[str, Any]) -> SimpleNamespace:
+    async def post(self, url: str, json: dict[str, Any]) -> FakeResponse:
         self.captured.update({"url": url, "json": json})
-        return SimpleNamespace(status_code=200)
+        return self.response
 
 
 async def test_twitter_search_maps_options_and_keeps_rate_limit_partial(
@@ -161,6 +175,7 @@ async def test_push_fn_feishu_webhook_and_missing_channel(
     assert "Launch Watch" in client.calls[0]["content"]
 
     FakeAsyncClient.captured = {}
+    FakeAsyncClient.response = FakeResponse(status_code=200, body={"code": 0})
     monkeypatch.setattr(push_module.httpx, "AsyncClient", FakeAsyncClient)
     await make_push_fn(
         feishu_client=None, chat_id="", webhook_url="https://feishu.test/hook",
@@ -173,6 +188,52 @@ async def test_push_fn_feishu_webhook_and_missing_channel(
     assert body["card"]["header"]["title"]["content"].startswith("🔔")
     assert "timestamp" in body and "sign" in body
     await make_push_fn(feishu_client=None, chat_id="", webhook_url="")(_hook(), _verdict())
+
+
+class ReplyFeishuClient:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.calls: list[dict[str, Any]] = []
+
+    async def send_message(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(kwargs)
+        return self.payload
+
+
+async def test_push_fn_raises_when_feishu_client_returns_error_code() -> None:
+    # 飞书 client 在机器人被移出群/chat_id 失效时返回 code!=0 而不抛错——push 必须把它变成失败。
+    client = ReplyFeishuClient({"code": 19001, "msg": "bot removed"})
+    with pytest.raises(runtime_module.HookRuntimeError) as exc_info:
+        await make_push_fn(feishu_client=client, chat_id="oc_123")(_hook(), _verdict())
+    assert "19001" in str(exc_info.value)
+    assert client.calls  # 确认确实尝试投递过
+
+
+async def test_push_fn_raises_when_webhook_http_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeAsyncClient.captured = {}
+    FakeAsyncClient.response = FakeResponse(status_code=500, body={"code": 0})
+    monkeypatch.setattr(push_module.httpx, "AsyncClient", FakeAsyncClient)
+    with pytest.raises(runtime_module.HookRuntimeError):
+        await make_push_fn(
+            feishu_client=None, chat_id="", webhook_url="https://feishu.test/hook",
+        )(_hook(), _verdict())
+
+
+async def test_push_fn_raises_when_webhook_body_code_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 飞书 webhook 常返回 HTTP 200 + body 里 code!=0（签名错/频控）。
+    FakeAsyncClient.captured = {}
+    FakeAsyncClient.response = FakeResponse(status_code=200, body={"code": 19001, "msg": "sign fail"})
+    monkeypatch.setattr(push_module.httpx, "AsyncClient", FakeAsyncClient)
+    with pytest.raises(runtime_module.HookRuntimeError) as exc_info:
+        await make_push_fn(
+            feishu_client=None, chat_id="", webhook_url="https://feishu.test/hook",
+            webhook_secret="secret",
+        )(_hook(), _verdict())
+    assert "19001" in str(exc_info.value)
 
 
 async def test_build_hook_runtime_wires_settings(monkeypatch: pytest.MonkeyPatch) -> None:
