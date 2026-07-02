@@ -25,6 +25,9 @@ interface HooksState {
 }
 
 const POLL_MS = 20000;
+// mock 仅作显式开发开关：VITE_HOOKS_MOCK=1 时才用演示数据，初始化判定一次即固定。
+// 后端已上线，默认（未设该变量）彻底禁用自动降级——refresh 失败就报错并自愈，绝不覆盖真实数据。
+const MOCK_ENABLED = import.meta.env.VITE_HOOKS_MOCK === "1";
 const pickCurrent = (items: HookSummary[], id: string): string =>
   items.some((s) => s.hook.id === id) ? id : items[0]?.hook.id ?? "";
 
@@ -35,7 +38,7 @@ export const useHooksStore = create<HooksState>((set, get) => ({
   error: "",
   scanningId: "",
   scanNote: "",
-  usingMock: false,
+  usingMock: MOCK_ENABLED,
   poller: null,
   loadAll: async () => {
     set({ loading: true });
@@ -45,14 +48,18 @@ export const useHooksStore = create<HooksState>((set, get) => ({
   refresh: async () => {
     try {
       const summaries = await hooksApi.list();
-      set((s) => ({ summaries, currentId: pickCurrent(summaries, s.currentId), usingMock: false, error: "" }));
-    } catch {
-      // 后端 /api/hooks 未就绪 → mock 兜底；已有真实/已编辑数据则不覆盖
-      set((s) => {
-        if (!s.usingMock && s.summaries.length) return {} as Partial<HooksState>;
-        const summaries = s.usingMock && s.summaries.length ? s.summaries : MOCK_SUMMARIES;
-        return { summaries, currentId: pickCurrent(summaries, s.currentId), usingMock: true };
-      });
+      set((s) => ({ summaries, currentId: pickCurrent(summaries, s.currentId), error: "" }));
+    } catch (error) {
+      if (MOCK_ENABLED) {
+        // 显式演示模式：首次空载才注入演示数据，已有内存编辑则保留，不报错。
+        set((s) => {
+          if (s.summaries.length) return {} as Partial<HooksState>;
+          return { summaries: MOCK_SUMMARIES, currentId: pickCurrent(MOCK_SUMMARIES, s.currentId) };
+        });
+        return;
+      }
+      // 真实模式：失败就是失败——保留已加载数据不覆盖，只置 error（下轮成功自动清空自愈）。
+      set({ error: error instanceof Error ? `加载失败：${error.message}` : "加载失败，将自动重试" });
     }
   },
   selectHook: (currentId) => set({ currentId, scanNote: "" }),
@@ -100,9 +107,9 @@ export const useHooksStore = create<HooksState>((set, get) => ({
   },
   startPolling: () => {
     if (get().poller !== null) return;
-    const poller = window.setInterval(() => {
-      if (!get().usingMock) void get().refresh();
-    }, POLL_MS);
+    // 显式演示模式无需轮询（避免打扰开发后端、覆盖内存编辑）；真实模式必须轮询以自愈。
+    if (MOCK_ENABLED) return;
+    const poller = window.setInterval(() => void get().refresh(), POLL_MS);
     set({ poller });
   },
   stopPolling: () => {

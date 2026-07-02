@@ -38,7 +38,7 @@ export default function HookDetail({ summary, usingMock, scanningId, onRun, onEd
             type="button"
             onClick={() => onRun(hook.id)}
             disabled={usingMock || scanning}
-            title={usingMock ? "后端就绪后可用" : "立即扫描（X+Exa+LLM，约几秒）"}
+            title={usingMock ? "演示数据模式不可扫描" : "立即扫描（X+Exa+LLM，约几秒）"}
             className="as-glass-accent inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-sm font-medium"
           >
             {scanning ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />}

@@ -66,7 +66,7 @@ export default function Hooks() {
           </span>
         </header>
 
-        {usingMock ? <Banner tone="amber">后端 /api/hooks 尚未就绪，当前为示例数据；接口上线后自动切换为实时。</Banner> : null}
+        {usingMock ? <Banner tone="amber">演示数据模式（VITE_HOOKS_MOCK=1）：以下为本地示例，改动仅存内存、不落库。关闭该开关即接入实时后端。</Banner> : null}
         {error ? <Banner tone="rose">{error}</Banner> : null}
         {scanNote ? <Banner tone="sky">{scanNote}</Banner> : null}
 

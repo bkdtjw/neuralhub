@@ -1,4 +1,4 @@
-// 后端未就绪时的看板兜底数据。后端 /api/hooks 一上线即自动弃用（见 hooksStore）。
+// 仅供显式演示开关（VITE_HOOKS_MOCK=1）使用的本地看板数据；默认运行时不加载（见 hooksStore）。
 import type { HookDraft, HookSummary, SourceHealth } from "@/types/hooks";
 
 export const MOCK_SUMMARIES: HookSummary[] = [
