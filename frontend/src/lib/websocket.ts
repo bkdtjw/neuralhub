@@ -10,12 +10,31 @@ class AgentWebSocket {
   private connectPromise: Promise<void> | null = null;
   private handlers: Map<string, Handler[]> = new Map();
   private reconnectAttempts = 0;
-  private maxReconnects = 3;
   private sessionId: string | null = null;
   private socketSessionId: string | null = null;
   private manuallyClosed = false;
   private connectVersion = 0;
   private reconnectTimer: number | null = null;
+
+  constructor() {
+    if (typeof window === "undefined") return;
+    // 休眠唤醒/断网恢复/切回窗口时立即重连，不等指数退避定时器
+    window.addEventListener("online", () => this.ensureConnected());
+    window.addEventListener("focus", () => this.ensureConnected());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") this.ensureConnected();
+    });
+  }
+
+  private ensureConnected(): void {
+    if (this.manuallyClosed || !this.sessionId) return;
+    const state = this.ws?.readyState;
+    if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return;
+    if (this.connectPromise) return;
+    this.clearReconnectTimer();
+    this.reconnectAttempts = 0;
+    void this.connect(this.sessionId).catch(() => undefined);
+  }
 
   private clearReconnectTimer(): void {
     if (this.reconnectTimer !== null) {
@@ -109,11 +128,8 @@ class AgentWebSocket {
 
       socket.onerror = (event) => {
         if (!this.isActiveSocket(socket, version)) return;
-        this.emit("error", {
-          type: "error",
-          message: "WebSocket 连接异常，消息可能没有发送到后端。请刷新页面后重试。",
-          event,
-        });
+        // 传输层错误不进聊天流：断线由自动重连兜底，发送失败在 send 路径已有专门提示
+        console.warn("WebSocket transport error", event);
       };
 
       socket.onclose = (event) => {
@@ -127,11 +143,12 @@ class AgentWebSocket {
         if (!settled) {
           rejectOnce(new Error("WebSocket closed before connect"));
         }
-        if (this.manuallyClosed || !this.sessionId || this.reconnectAttempts >= this.maxReconnects) return;
-        const delay = 1000 * 2 ** this.reconnectAttempts;
+        if (this.manuallyClosed || !this.sessionId) return;
+        // 无限重连，退避封顶 15s；唤醒/联网/聚焦事件会绕过退避立即重试
+        const delay = Math.min(1000 * 2 ** Math.min(this.reconnectAttempts, 4), 15_000);
         this.reconnectAttempts += 1;
         this.reconnectTimer = window.setTimeout(() => {
-          void this.connect(this.sessionId as string);
+          void this.connect(this.sessionId as string).catch(() => undefined);
         }, delay);
       };
 
