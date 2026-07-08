@@ -22,6 +22,7 @@ _PROVIDER_ROLES_MIGRATION_SQL = (
     "ADD COLUMN IF NOT EXISTS roles VARCHAR(200) NOT NULL DEFAULT ''"
 )
 _PGVECTOR_EXTENSION_SQL = "CREATE EXTENSION IF NOT EXISTS vector"
+_DB_CONNECTIVITY_SQL = "SELECT 1"
 
 
 def build_session_factory(database_url: str) -> tuple[AsyncEngine, SessionFactory]:
@@ -53,11 +54,23 @@ engine, session_factory = build_session_factory(settings.database_url)
 
 async def init_db(target_engine: AsyncEngine | None = None) -> None:
     resolved_engine = target_engine or engine
+    if not settings.auto_create_tables:
+        # 生产环境由 alembic 管理 schema：跳过 create_all，仅校验数据库连通性。
+        await _check_db_connectivity(resolved_engine)
+        return
     try:
         async with resolved_engine.begin() as connection:
             await connection.execute(text(_PGVECTOR_EXTENSION_SQL))
             await connection.run_sync(Base.metadata.create_all)
             await connection.execute(text(_PROVIDER_ROLES_MIGRATION_SQL))
+    except Exception as exc:  # noqa: BLE001
+        raise AgentError("DB_INIT_ERROR", str(exc)) from exc
+
+
+async def _check_db_connectivity(target_engine: AsyncEngine) -> None:
+    try:
+        async with target_engine.connect() as connection:
+            await connection.execute(text(_DB_CONNECTIVITY_SQL))
     except Exception as exc:  # noqa: BLE001
         raise AgentError("DB_INIT_ERROR", str(exc)) from exc
 

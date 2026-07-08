@@ -9,7 +9,9 @@
 ## 环境配置
 - 复制 `.env.example` 为 `.env`
 - 必填项：`DATABASE_URL`、`REDIS_URL`、`AUTH_SECRET`
-- 可选项：`GUNICORN_WORKERS`、`LOG_LEVEL`、`LOG_FORMAT`、`LOG_STDOUT`、`LOG_FILE_ENABLED`、`LOG_FILE_SCOPE`、`LOG_SEARCH_BACKEND`、`LOKI_BASE_URL`、`API_PORT`
+- 可选项：`GUNICORN_WORKERS`、`LOG_LEVEL`、`LOG_FORMAT`、`LOG_STDOUT`、`LOG_FILE_ENABLED`、`LOG_FILE_SCOPE`、`LOG_SEARCH_BACKEND`、`LOKI_BASE_URL`、`API_PORT`、`AUTO_CREATE_TABLES`
+
+> **Schema 管理（`AUTO_CREATE_TABLES`）**：默认 `true`，应用启动时由 `init_db` 执行 `create_all` 自动建表（与 entrypoint 的 `alembic upgrade head` 双轨）。生产环境的目标是设为 `false`，让 alembic 迁移成为 schema 的唯一权威，避免"新列只在 model、alembic 漏迁移"的双轨风险。**注意**：当前迁移链尚无覆盖全部核心表的 baseline（链头仅 alter 既有表，`providers.roles` 也只由 `init_db` 补列），因此在补齐 alembic baseline 之前，请勿在全新数据库上直接设 `false`——否则核心表不会被创建。设为 `false` 时 `init_db` 仅做数据库连通性检查。
 
 ## Volume 映射
 docker-compose.yml 配置了以下 volume 映射：

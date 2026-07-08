@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
     database_pool_recycle: int = 1800
+    # 启动时是否由 init_db 执行 create_all 自动建表。默认 True 保持开发/现状行为不变；
+    # 生产环境应设为 False，让 alembic 迁移成为 schema 唯一权威，避免与 create_all 双轨漏迁移。
+    auto_create_tables: bool = True
     metrics_ttl_days: int = 30
     log_search_backend: str = "file"
     log_search_fallback: str = "file"

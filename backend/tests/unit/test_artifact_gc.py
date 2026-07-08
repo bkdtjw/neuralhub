@@ -4,6 +4,7 @@ import asyncio
 import os
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,11 @@ import pytest_asyncio
 from backend.core.s06_context_compression import artifact_gc
 
 _DAY = 24 * 60 * 60
+
+
+async def _noop_purge(*_args: object, **_kwargs: object) -> int:
+    # 循环测试保持纯内存：桩掉 DB 回收，不触碰 PostgresContainer。
+    return 0
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -108,6 +114,7 @@ async def test_loop_survives_cleanup_exception(monkeypatch: pytest.MonkeyPatch) 
         return 0
 
     monkeypatch.setattr(artifact_gc, "cleanup_expired_artifacts", flaky)
+    monkeypatch.setattr(artifact_gc, "purge_expired_sub_agent_sessions", _noop_purge)
     monkeypatch.setattr(artifact_gc, "GC_INTERVAL_SECONDS", 0.01)
 
     await asyncio.wait_for(artifact_gc.run_artifact_gc_loop(event), timeout=2.0)
@@ -124,8 +131,9 @@ async def test_start_stop_artifact_gc_wires_task(monkeypatch: pytest.MonkeyPatch
 
     from backend.api import lifespan_support
 
-    # 让后台循环不触碰真实 data/ 目录。
+    # 让后台循环不触碰真实 data/ 目录，也不触碰 DB。
     monkeypatch.setattr(artifact_gc, "cleanup_expired_artifacts", lambda *a, **k: 0)
+    monkeypatch.setattr(artifact_gc, "purge_expired_sub_agent_sessions", _noop_purge)
 
     app = SimpleNamespace(state=SimpleNamespace())
     lifespan_support.start_artifact_gc(app)
@@ -141,3 +149,31 @@ async def test_start_stop_artifact_gc_wires_task(monkeypatch: pytest.MonkeyPatch
     assert app.state.artifact_gc_shutdown is None
 
     await lifespan_support.stop_artifact_gc(app)  # 无任务时安全的二次调用
+
+
+# --- sub-agent 会话回收：按保留期算 cutoff 并委托 SessionStore ---
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_sub_agent_sessions_delegates_with_retention_cutoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import backend.storage as storage_pkg
+
+    captured: dict[str, datetime] = {}
+
+    class _FakeStore:
+        async def purge_sub_agent_sessions(self, before: datetime) -> int:
+            captured["before"] = before
+            return 5
+
+    monkeypatch.setattr(storage_pkg, "SessionStore", _FakeStore)
+
+    expected = datetime.utcnow() - timedelta(
+        days=artifact_gc.SUB_AGENT_SESSION_RETENTION_DAYS
+    )
+    removed = await artifact_gc.purge_expired_sub_agent_sessions()
+
+    assert removed == 5
+    # cutoff ≈ now - 保留天数（容差 5s，规避执行耗时）
+    assert abs((captured["before"] - expected).total_seconds()) < 5

@@ -21,7 +21,11 @@ from backend.storage import SessionStore
 from . import task_queue_consumer_helpers as helpers
 
 logger = get_logger(component="sub_agent_consumer")
-HEARTBEAT_INTERVAL_SECONDS, LEASE_EXTENSION_SECONDS = 15.0, 60.0
+_KB_EXECUTORS = {
+    "knowledge_ingest": kb_tasks.execute_knowledge_ingest_task,
+    "knowledge_ingest_batch": kb_tasks.execute_knowledge_ingest_batch_task,
+    "knowledge_ingest_local_batch": knowledge_local_tasks.execute_local_knowledge_ingest_task,
+}
 
 
 @dataclass
@@ -52,15 +56,15 @@ async def consume_next_sub_agent_task(context: SubAgentConsumerContext) -> bool:
 
 
 async def execute_sub_agent_task(payload: TaskPayload, context: SubAgentConsumerContext) -> None:
-    kind = payload.input_data.get("kind")
-    if kind in {"knowledge_ingest", "knowledge_ingest_batch"}:
-        task = kb_tasks.execute_knowledge_ingest_task
-        if kind == "knowledge_ingest_batch":
-            task = kb_tasks.execute_knowledge_ingest_batch_task
-        await task(payload, context.queue)
-        return
-    if kind == "knowledge_ingest_local_batch":
-        await knowledge_local_tasks.execute_local_knowledge_ingest_task(payload, context.queue)
+    kb_executor = _KB_EXECUTORS.get(payload.input_data.get("kind"))
+    if kb_executor is not None:
+        # kb 入库纳入心跳保活：lease 持续续约，避免 worker 重启/超长批次被 recover 误判重入队。
+        # 超时上限取 payload.timeout_seconds（本地批量 3600s），非 helpers._timeout_seconds（kb 恒 120s 会误杀）。  # noqa: E501
+        await helpers._run_with_heartbeat(
+            context, payload,
+            lambda: kb_executor(payload, context.queue),
+            payload.timeout_seconds,
+        )
         return
     timeout_seconds = helpers._timeout_seconds(payload.input_data)
     started_at = monotonic()
@@ -81,7 +85,7 @@ async def execute_sub_agent_task(payload: TaskPayload, context: SubAgentConsumer
             run_input = "请继续之前未完成的任务" if restored else str(payload.input_data.get("input", ""))  # noqa: E501
             run_task = asyncio.create_task(loop.run(run_input), name=f"sub-agent-run-{payload.task_id}")  # noqa: E501
             heartbeat = asyncio.create_task(
-                helpers._heartbeat_loop(context.queue, payload.task_id, HEARTBEAT_INTERVAL_SECONDS, LEASE_EXTENSION_SECONDS, run_task, cancel_event),  # noqa: E501
+                helpers._heartbeat_loop(context.queue, payload.task_id, helpers.HEARTBEAT_INTERVAL_SECONDS, helpers.LEASE_EXTENSION_SECONDS, run_task, cancel_event),  # noqa: E501
                 name=f"sub-agent-heartbeat-{payload.task_id}",
             )
             result = await asyncio.wait_for(run_task, timeout=timeout_seconds)

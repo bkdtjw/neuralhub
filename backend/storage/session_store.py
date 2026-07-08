@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import selectinload
 
 from backend.common.errors import AgentError
@@ -52,15 +52,20 @@ class SessionStore:
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SESSION_STORE_GET_ERROR", str(exc)) from exc
 
-    async def list_all(self) -> list[Session]:
+    async def list_all(self) -> list[tuple[Session, int]]:
+        # 仅聚合消息条数，避免把整张 messages 表读入内存并反序列化 tool_calls/results；
+        # 同时排除 sub-agent:{task_id} checkpoint 会话（不在会话列表里展示）。
         try:
             async with get_db_session(self._session_factory) as db:
-                statement = select(SessionRecord).options(selectinload(SessionRecord.messages)).order_by(SessionRecord.created_at.desc())
-                records = (await db.execute(statement)).scalars().unique().all()
-                return [
-                    to_session(record, [to_message(item) for item in sorted(record.messages, key=lambda current: (current.timestamp, current.id))])
-                    for record in records
-                ]
+                statement = (
+                    select(SessionRecord, func.count(MessageRecord.id))
+                    .outerjoin(MessageRecord, MessageRecord.session_id == SessionRecord.id)
+                    .where(SessionRecord.id.notlike("sub-agent:%"))
+                    .group_by(SessionRecord.id)
+                    .order_by(SessionRecord.created_at.desc())
+                )
+                rows = (await db.execute(statement)).all()
+                return [(to_session(record), count) for record, count in rows]
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SESSION_STORE_LIST_ERROR", str(exc)) from exc
 
@@ -89,6 +94,21 @@ class SessionStore:
                 return bool(result.rowcount)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SESSION_STORE_DELETE_ERROR", str(exc)) from exc
+
+    async def purge_sub_agent_sessions(self, before: datetime) -> int:
+        # 回收永不清理的 sub-agent:{task_id} checkpoint 会话；messages 由 FK ondelete=CASCADE 级联删除。
+        try:
+            async with get_db_session(self._session_factory) as db:
+                result = await db.execute(
+                    delete(SessionRecord).where(
+                        SessionRecord.id.like("sub-agent:%"),
+                        SessionRecord.created_at < before,
+                    )
+                )
+                await db.commit()
+                return int(result.rowcount or 0)
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError("SESSION_STORE_PURGE_SUB_AGENT_ERROR", str(exc)) from exc
 
     async def save_messages(self, session_id: str, messages: list[Message]) -> None:
         try:

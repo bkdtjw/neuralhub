@@ -29,7 +29,8 @@ async def test_session_store_crud_roundtrip(tmp_path) -> None:
         assert fetched.config.model == "glm-4-plus"
 
         listed = await store.list_all()
-        assert [item.id for item in listed] == [created.id]
+        assert [session.id for session, _count in listed] == [created.id]
+        assert [count for _session, count in listed] == [0]
 
         updated = await store.update_title(created.id, "updated")
         assert updated is not None

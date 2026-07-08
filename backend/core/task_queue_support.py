@@ -5,6 +5,7 @@ from time import time
 from typing import Any, Protocol
 
 from backend.common.logging import get_logger
+from backend.core.task_queue_persistence import TaskPersistence
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")
@@ -18,6 +19,7 @@ class TaskQueueStore(Protocol):
     _index_key: str
     _queue_key: str
     _task_ttl_seconds: int
+    _persistence: TaskPersistence | None
 
     async def get_status(self, task_id: str) -> TaskPayload | None: ...
     async def fail(self, task_id: str, error: str, worker_id: str = "") -> bool: ...
@@ -42,82 +44,6 @@ async def wait_for_task_payloads(
         if time() > deadline:
             return await _fail_stuck_tasks(queue, task_ids, statuses)
         await asyncio.sleep(poll_interval)
-
-
-async def recover_stale_task_payloads(queue: TaskQueueStore) -> int:
-    checked = 0
-    recovered = 0
-    failed = 0
-    now = time()
-    for task_id in await queue._task_ids():
-        payload = await queue.get_status(task_id)
-        checked += 1
-        if payload is None:
-            await queue._redis.srem(queue._index_key, task_id)
-            continue
-        if payload.status != TaskStatus.RUNNING or not _lease_expired(payload, now):
-            continue
-        if payload.retry_count < payload.max_retries:
-            has_checkpoint = await queue.has_checkpoint(payload.task_id)
-            pending = payload.model_copy(
-                update={
-                    "status": TaskStatus.PENDING,
-                    "worker_id": "",
-                    "started_at": 0.0,
-                    "lease_expires_at": 0.0,
-                    "result": None,
-                    "error": "",
-                    "retry_count": payload.retry_count + 1,
-                }
-            )
-            await queue._save_payload(pending)
-            await queue._redis.lpush(queue._queue_key, payload.task_id)
-            await queue._redis.expire(queue._queue_key, queue._task_ttl_seconds)
-            recovered += 1
-            logger.warning(
-                "stale_task_recovered",
-                namespace=queue.namespace,
-                task_id=payload.task_id,
-                retry_count=pending.retry_count,
-                worker_id=payload.worker_id,
-                has_checkpoint=has_checkpoint,
-            )
-            continue
-        await _expire_stale_task(queue, payload)
-        refreshed = await queue.get_status(payload.task_id)
-        if refreshed is not None and refreshed.status == TaskStatus.FAILED:
-            failed += 1
-            logger.warning(
-                "stale_task_expired",
-                namespace=queue.namespace,
-                task_id=payload.task_id,
-                max_retries=payload.max_retries,
-            )
-    if failed:
-        logger.warning(
-            "stale_task_scan",
-            namespace=queue.namespace,
-            checked=checked,
-            recovered=recovered,
-            failed=failed,
-        )
-    elif recovered:
-        logger.info(
-            "stale_task_scan",
-            namespace=queue.namespace,
-            checked=checked,
-            recovered=recovered,
-            failed=failed,
-        )
-    else:
-        logger.debug(
-            "stale_task_scan",
-            namespace=queue.namespace,
-            checked=checked,
-            recovered=recovered,
-            failed=failed,
-        )
-    return recovered
 
 
 async def update_terminal_payload_state(

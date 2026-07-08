@@ -25,7 +25,7 @@ def _get_store(request: Request) -> SessionStore:
     return store
 
 
-def _to_summary(session: Session) -> SessionResponse:
+def _to_summary(session: Session, message_count: int | None = None) -> SessionResponse:
     return SessionResponse(
         id=session.id,
         title=session.title,
@@ -33,7 +33,7 @@ def _to_summary(session: Session) -> SessionResponse:
         config=session.config.model_dump(mode="json"),
         status=session.status,
         created_at=session.created_at.isoformat(),
-        message_count=len(session.messages),
+        message_count=len(session.messages) if message_count is None else message_count,
     )
 
 
@@ -57,8 +57,8 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
 @router.get("", response_model=SessionListResponse)
 async def list_sessions(request: Request) -> SessionListResponse:
     try:
-        sessions = await _get_store(request).list_all()
-        return SessionListResponse(sessions=[_to_summary(item) for item in sessions])
+        summaries = await _get_store(request).list_all()
+        return SessionListResponse(sessions=[_to_summary(item, count) for item, count in summaries])
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

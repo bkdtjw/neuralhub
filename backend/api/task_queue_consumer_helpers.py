@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from backend.common.logging import get_logger
 from backend.common.metrics import record_latency_sample
 from backend.common.prometheus_metrics import observe_sub_agent_task
 from backend.common.types import Message
-from backend.core.task_queue import TaskQueue
+from backend.core.task_queue import TaskPayload, TaskQueue
+
+if TYPE_CHECKING:
+    from backend.api.task_queue_consumer import SubAgentConsumerContext
 
 logger = get_logger(component="sub_agent_consumer")
+HEARTBEAT_INTERVAL_SECONDS, LEASE_EXTENSION_SECONDS = 15.0, 60.0
 
 
 async def _record_task_failure(
@@ -58,6 +64,31 @@ async def _heartbeat_loop(
                 return
         except Exception as exc:  # noqa: BLE001
             logger.warning("sub_agent_task_heartbeat_error", task_id=task_id, error=str(exc))
+
+
+async def _run_with_heartbeat(
+    context: SubAgentConsumerContext,
+    payload: TaskPayload,
+    coro_factory: Callable[[], Awaitable[Any]],
+    timeout_seconds: float,
+) -> None:
+    # 用心跳保活任意任务：执行期间周期续约 lease，避免长任务被 recover 误判重入队。
+    # timeout_seconds 由调用方给定（知识入库应传 payload.timeout_seconds，勿用恒 120s 的 _timeout_seconds）。
+    heartbeat = asyncio.create_task(
+        _heartbeat_loop(
+            context.queue,
+            payload.task_id,
+            HEARTBEAT_INTERVAL_SECONDS,
+            LEASE_EXTENSION_SECONDS,
+        ),
+        name=f"heartbeat-{payload.task_id}",
+    )
+    try:
+        await asyncio.wait_for(coro_factory(), timeout=timeout_seconds)
+    finally:
+        heartbeat.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat
 
 
 def _timeout_seconds(input_data: dict[str, Any]) -> float:
@@ -117,11 +148,14 @@ async def _safe_fail(queue: TaskQueue, task_id: str, error: str, worker_id: str 
 
 
 __all__ = [
+    "HEARTBEAT_INTERVAL_SECONDS",
+    "LEASE_EXTENSION_SECONDS",
     "_heartbeat_loop",
     "_loop_config_value",
     "_payload_log_context",
     "_record_task_failure",
     "_restored_messages",
+    "_run_with_heartbeat",
     "_safe_fail",
     "_timeout_seconds",
     "_tool_call_count",

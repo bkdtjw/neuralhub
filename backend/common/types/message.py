@@ -10,7 +10,8 @@ Role = Literal["user", "assistant", "system", "tool"]
 
 
 def generate_id() -> str:
-    return uuid4().hex[:12]
+    # 全 32 位 uuid4 hex（122 bit 随机），避免 messages.id 全局主键长期生日碰撞。
+    return uuid4().hex
 
 
 class ToolCall(BaseModel):

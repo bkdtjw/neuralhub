@@ -105,6 +105,19 @@ class SubAgentTaskStore:
         except Exception as exc:  # noqa: BLE001
             raise AgentError("SUB_AGENT_TASK_LIST_ERROR", str(exc)) from exc
 
+    async def list_stale_running(self, now: float) -> list[TaskPayload]:
+        try:
+            async with get_db_session(self._session_factory) as db:
+                statement = select(SubAgentTaskRecord).where(
+                    SubAgentTaskRecord.status == TaskStatus.RUNNING.value,
+                    SubAgentTaskRecord.lease_expires_at > 0,
+                    SubAgentTaskRecord.lease_expires_at < now,
+                )
+                rows = (await db.execute(statement)).scalars().all()
+                return [to_payload(row) for row in rows]
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError("SUB_AGENT_TASK_LIST_STALE_ERROR", str(exc)) from exc
+
     async def renew_lease(self, task_id: str, extension_seconds: float) -> None:
         try:
             async with get_db_session(self._session_factory) as db:

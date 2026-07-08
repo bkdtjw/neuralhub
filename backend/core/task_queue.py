@@ -5,7 +5,8 @@ from typing import Any
 from backend.common.logging import get_log_context, get_logger
 from backend.core.task_queue_cancel import TaskQueueError, cancel_flag_active, cancel_payload_task
 from backend.core.task_queue_persistence import TaskPersistence
-from backend.core.task_queue_support import recover_stale_task_payloads, update_terminal_payload_state, wait_for_task_payloads
+from backend.core.task_queue_recover_support import recover_stale_task_payloads
+from backend.core.task_queue_support import update_terminal_payload_state, wait_for_task_payloads
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")

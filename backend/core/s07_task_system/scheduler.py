@@ -28,13 +28,18 @@ class TaskScheduler:
         self._check_interval = check_interval
         self._running = False
         self._task: asyncio.Task | None = None
+        self._recovery_task: asyncio.Task | None = None
         self._runtime_state = SchedulerRuntimeState(check_interval)
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
-        await self._recover_missed_tasks()
+        # 后台补跑错过的任务：串行执行每个错过任务会真跑 LLM agent（每个上限 600s），
+        # 若在此 await 会阻塞 FastAPI startup → /health 不通 → K8s 探针杀进程。
+        # 去重/运行锁由 _execute_task 的 acquire_running + _should_run 的 is_task_running 保证，
+        # 后台 recovery 与 _loop 到点触发不会双跑。存引用防止任务被 GC 回收。
+        self._recovery_task = asyncio.create_task(self._recover_missed_tasks())
         self._task = asyncio.create_task(self._loop())
         logger.info("task_scheduler_started", interval=self._check_interval)
 
@@ -47,6 +52,13 @@ class TaskScheduler:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        if self._recovery_task is not None:
+            self._recovery_task.cancel()
+            try:
+                await self._recovery_task
+            except asyncio.CancelledError:
+                pass
+            self._recovery_task = None
         logger.info("task_scheduler_stopped")
 
     async def _loop(self) -> None:

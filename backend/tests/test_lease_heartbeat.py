@@ -5,7 +5,8 @@ from time import time
 
 import pytest
 
-from backend.api.task_queue_consumer import _build_sub_agent_loop, _heartbeat_loop
+from backend.api.task_queue_consumer import _build_sub_agent_loop
+from backend.api.task_queue_consumer_helpers import _heartbeat_loop
 from backend.common.types import AgentEvent, Message
 from backend.config import get_redis
 from backend.core.s02_tools.builtin.spawn_agent import create_spawn_agent_tool
