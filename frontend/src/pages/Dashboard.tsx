@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Code2, Search, Sparkles, WandSparkles } from "lucide-react";
 
@@ -19,6 +19,7 @@ const suggestions = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [startError, setStartError] = useState("");
   const createSession = useSessionStore((state) => state.createSession);
   const startDraftSession = useSessionStore((state) => state.startDraftSession);
   const model = useAgentStore((state) => state.currentModel);
@@ -40,6 +41,7 @@ export default function Dashboard() {
   const startChat = async (prompt?: string, options?: ChatRunOptions) => {
     const content = prompt?.trim() ?? "";
     if (!content) return;
+    setStartError("");
     if (!providerId || !model) {
       navigate("/settings");
       return;
@@ -49,6 +51,7 @@ export default function Dashboard() {
       navigate(`/session/${id}`, { state: { initialPrompt: content, ...options } });
     } catch (error) {
       console.error("create session failed", error);
+      setStartError(error instanceof Error && error.message ? error.message : "创建会话失败，请稍后重试");
     }
   };
 
@@ -105,6 +108,9 @@ export default function Dashboard() {
       </div>
 
       <div className="absolute bottom-10 left-0 right-0 px-6">
+        {startError ? (
+          <div className="mx-auto mb-2 w-full max-w-[1120px] text-center text-[12px] text-[#ff7b72]">{startError}</div>
+        ) : null}
         <InputBar status="idle" onSend={(text, options) => void startChat(text, options)} onAbort={() => {}} compact />
       </div>
     </div>

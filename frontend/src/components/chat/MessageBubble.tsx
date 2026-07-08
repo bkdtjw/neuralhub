@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import MarkdownContent from "@/components/chat/MarkdownContent";
 import ReasoningBlock from "@/components/chat/ReasoningBlock";
 import ToolCallLine from "@/components/chat/ToolCallLine";
@@ -14,7 +16,7 @@ const resultForCall = (results: ToolResult[] | undefined, callId: string, index:
   return results.find((item) => item.toolCallId && item.toolCallId === callId) ?? results[index];
 };
 
-export default function MessageBubble({ message, isRunning = false, isStreaming = false }: MessageBubbleProps) {
+function MessageBubble({ message, isRunning = false, isStreaming = false }: MessageBubbleProps) {
   if (message.role === "tool") return null;
 
   const isUser = message.role === "user";
@@ -50,3 +52,7 @@ export default function MessageBubble({ message, isRunning = false, isStreaming 
     </div>
   );
 }
+
+// memo：历史气泡 props（message 引用/isRunning/isStreaming）在流式期间稳定，跳过重渲；
+// 流式气泡因 message 每 token 换新引用仍正常重渲，不影响流式显示。
+export default memo(MessageBubble);
