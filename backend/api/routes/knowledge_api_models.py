@@ -44,6 +44,11 @@ class KnowledgeDocumentListResponse(BaseModel):
     documents: list[KnowledgeDocumentResponse]
 
 
+class KnowledgeDeleteResponse(BaseModel):
+    deleted: bool
+    id: str
+
+
 class KnowledgeStatusResponse(BaseModel):
     queue_ready: bool
     feishu_configured: bool
@@ -65,6 +70,7 @@ __all__ = [
     "KnowledgeBaseListResponse",
     "KnowledgeBaseRenameRequest",
     "KnowledgeBaseResponse",
+    "KnowledgeDeleteResponse",
     "KnowledgeDocumentListResponse",
     "KnowledgeDocumentResponse",
     "KnowledgeStatusResponse",

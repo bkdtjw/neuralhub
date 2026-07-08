@@ -17,6 +17,7 @@ from backend.api.routes.feishu_knowledge_upload_batch_support import (
     last_key,
     lock_key,
     notify_batch_submitted,
+    remove_submitted_files,
     size_key,
 )
 from backend.common.logging import get_logger
@@ -99,6 +100,9 @@ async def flush_upload_batch(
             logger.error("upload_batch_submit_failed", batch_key=batch_key, error=str(exc))
             asyncio.create_task(_delayed_flush(batch_key, context, config))
             return
+        # 提交成功：按读取到的文件数 LTRIM 精确移除已提交项，保留提交窗口期 rpush 到达的
+        # 新文件（不被整键清空），再清理其余批次元数据 key。
+        await remove_submitted_files(redis, batch_key, len(raw_files))
         await clear_batch(redis, batch_key)
     finally:
         await redis.delete(lock_key(batch_key))

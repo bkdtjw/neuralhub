@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pgvector.sqlalchemy import HALFVEC
-from sqlalchemy import cast, select, text
+from sqlalchemy import cast, delete, select, text
 
 from backend.core.s13_knowledge.db_models import (
     KnowledgeBaseRecord,
@@ -14,13 +14,13 @@ from backend.core.s13_knowledge.errors import KnowledgeError
 from backend.core.s13_knowledge.models import (
     KnowledgeBase,
     KnowledgeChunk,
-    KnowledgeDocument,
     SearchHit,
 )
+from backend.core.s13_knowledge.store_docs import KnowledgeDocumentStore
 from backend.storage.database import SessionFactory, get_db_session
 
 
-class KnowledgeStore:
+class KnowledgeStore(KnowledgeDocumentStore):
     def __init__(self, session_factory: SessionFactory | None = None) -> None:
         self._session_factory = session_factory
 
@@ -90,27 +90,24 @@ class KnowledgeStore:
         except Exception as exc:  # noqa: BLE001
             raise KnowledgeError("KNOWLEDGE_KB_LIST_ERROR", str(exc)) from exc
 
-    async def create_document(self, document: KnowledgeDocument) -> KnowledgeDocument:
+    async def delete_base(self, kb_id: str) -> bool:
+        # 显式按 kb_id 清 chunk 与文档再删 base，不依赖 FK 级联是否落库（kb_chunks.kb_id 无 FK）。
         try:
             async with get_db_session(self._session_factory) as db:
-                db.add(KnowledgeDocumentRecord(**document.model_dump()))
-                await db.commit()
-            return document
-        except Exception as exc:  # noqa: BLE001
-            raise KnowledgeError("KNOWLEDGE_DOCUMENT_CREATE_ERROR", str(exc)) from exc
-
-    async def update_document(self, document: KnowledgeDocument) -> None:
-        try:
-            async with get_db_session(self._session_factory) as db:
-                record = await db.get(KnowledgeDocumentRecord, document.id)
+                record = await db.get(KnowledgeBaseRecord, kb_id)
                 if record is None:
-                    return
-                record.status = document.status
-                record.chunk_count = document.chunk_count
-                record.error = document.error
+                    return False
+                await db.execute(
+                    delete(KnowledgeChunkRecord).where(KnowledgeChunkRecord.kb_id == kb_id)
+                )
+                await db.execute(
+                    delete(KnowledgeDocumentRecord).where(KnowledgeDocumentRecord.kb_id == kb_id)
+                )
+                await db.delete(record)
                 await db.commit()
+                return True
         except Exception as exc:  # noqa: BLE001
-            raise KnowledgeError("KNOWLEDGE_DOCUMENT_UPDATE_ERROR", str(exc)) from exc
+            raise KnowledgeError("KNOWLEDGE_KB_DELETE_ERROR", str(exc)) from exc
 
     async def add_chunks(self, chunks: list[KnowledgeChunk]) -> None:
         try:

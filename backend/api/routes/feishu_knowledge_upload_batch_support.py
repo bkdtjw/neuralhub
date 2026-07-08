@@ -28,13 +28,23 @@ async def notify_batch_submitted(context: Any, files: list[Any]) -> None:
 
 
 async def clear_batch(redis: Any, batch_key: str) -> None:
+    # files_key 由 flush 用 LTRIM 按已提交数量精确移除（见 remove_submitted_files），
+    # 不在此处整键 delete，以免把提交窗口期 rpush 到达的新文件一并清掉而静默丢弃。
     await redis.delete(
-        files_key(batch_key),
         first_key(batch_key),
         last_key(batch_key),
         count_key(batch_key),
         size_key(batch_key),
     )
+
+
+async def remove_submitted_files(redis: Any, batch_key: str, submitted: int) -> None:
+    # 精确移除已提交的前 submitted 个文件：rpush 只追加到表尾，提交窗口期到达的文件
+    # 位于下标 >= submitted，LTRIM [submitted, -1] 单命令原子地只删已提交项、保留窗口期
+    # 文件，避免“LRANGE 读 + DEL 整键清”两步之间到达的 rpush 文件被静默丢弃。
+    if submitted <= 0:
+        return
+    await redis.ltrim(files_key(batch_key), submitted, -1)
 
 
 def batch_timeout(files: list[Any]) -> int:
@@ -79,5 +89,6 @@ __all__ = [
     "last_key",
     "lock_key",
     "notify_batch_submitted",
+    "remove_submitted_files",
     "size_key",
 ]

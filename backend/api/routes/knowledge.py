@@ -8,6 +8,7 @@ from backend.api.routes.knowledge_api_models import (
     KnowledgeBaseListResponse,
     KnowledgeBaseRenameRequest,
     KnowledgeBaseResponse,
+    KnowledgeDeleteResponse,
     KnowledgeDocumentListResponse,
     KnowledgeDocumentResponse,
     KnowledgeStatusResponse,
@@ -121,6 +122,32 @@ async def upload_knowledge_documents(
         raise
     except Exception as exc:  # noqa: BLE001
         raise _server_error("KNOWLEDGE_DOCUMENT_UPLOAD_ERROR", str(exc), 400) from exc
+
+
+@router.delete("/bases/{kb_id}", response_model=KnowledgeDeleteResponse)
+async def delete_knowledge_base(kb_id: str) -> KnowledgeDeleteResponse:
+    try:
+        deleted = await KnowledgeService().delete_kb(kb_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail={"message": "知识库不存在"})
+        return KnowledgeDeleteResponse(deleted=deleted, id=kb_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _server_error("KNOWLEDGE_BASE_DELETE_ERROR", str(exc)) from exc
+
+
+@router.delete("/documents/{doc_id}", response_model=KnowledgeDeleteResponse)
+async def delete_knowledge_document(doc_id: str) -> KnowledgeDeleteResponse:
+    try:
+        deleted = await KnowledgeService().delete_document(doc_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail={"message": "文档不存在"})
+        return KnowledgeDeleteResponse(deleted=deleted, id=doc_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _server_error("KNOWLEDGE_DOCUMENT_DELETE_ERROR", str(exc)) from exc
 
 
 def _base_response(base: KnowledgeBase) -> KnowledgeBaseResponse:

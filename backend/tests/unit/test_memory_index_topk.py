@@ -27,7 +27,7 @@ def _entry(
     )
 
 
-def test_memory_index_matches_keywords_and_increments_hit_count() -> None:
+def test_memory_index_matches_keywords_without_mutating_hit_count() -> None:
     target = _entry("m1", ["淘口令", "短链"])
     store = LongTermMemory(entries=[target, _entry("m2", ["飞书"])])
     index = MemoryIndex(store)
@@ -35,7 +35,8 @@ def test_memory_index_matches_keywords_and_increments_hit_count() -> None:
     matches = index.match("帮我看下这个淘口令 ¥abc¥", limit=5)
 
     assert matches == [target]
-    assert target.hit_count == 1
+    # 召回不再自增 hit_count：召回权重须由持久化的命中计数提供（E4）
+    assert target.hit_count == 0
 
 
 def test_memory_index_hit_count_boosts_topk() -> None:

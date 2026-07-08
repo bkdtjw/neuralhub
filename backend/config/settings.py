@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     zhipu_embedding_model: str = "embedding-3"
     zhipu_embedding_dimensions: int = 2048
     knowledge_upload_dir: str = "data/knowledge_uploads"
+    # embedding 余弦相似度阈值（score = 1 - cosine_distance）；低于此值的检索段视为无关不注入，
+    # 避免无关提问也塞 top_k 段诱导幻觉。上线后按实际 query 调，先取 0.35~0.4。
+    knowledge_score_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     youtube_api_key: str = ""
     youtube_proxy_url: str = ""
     twitter_username: str = ""

@@ -8,13 +8,14 @@ from pydantic import BaseModel, ConfigDict
 from backend.adapters.base import LLMAdapter
 from backend.adapters.provider_manager import ProviderManager
 from backend.common.errors import AgentError
+from backend.common.logging import get_logger
 from backend.common.types import AgentConfig, AgentEventHandler, Message, ProviderConfig
 from backend.config.settings import Settings
 from backend.core.s01_agent_loop import AgentLoop, CheckpointFn, PlanExecuteRunner, PlanRenderer
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.core.s02_tools.mcp import MCPServerManager, MCPToolBridge
-from backend.core.s06_context_compression import MemoryIndex
+from backend.core.s06_context_compression import LongTermMemory, MemoryIndex
 from backend.core.system_prompt import build_system_prompt
 from backend.core.task_queue import TaskQueue
 from backend.storage.memory_store import MemoryStore
@@ -29,6 +30,8 @@ from .runtime_support import (
     allowed_tools_with_defaults,
     build_runtime_registry,
 )
+
+logger = get_logger(component="agent_runtime")
 
 
 class AgentRuntimeDeps(BaseModel):
@@ -273,7 +276,11 @@ class AgentRuntime:
 
     @staticmethod
     def _build_memory_index() -> MemoryIndex:
-        return MemoryIndex(MemoryStore().load())
+        try:
+            return MemoryIndex(MemoryStore().load())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("memory_index_build_degraded", error=str(exc))
+            return MemoryIndex(LongTermMemory())
 
 
 __all__ = ["AgentRuntime", "AgentRuntimeDeps"]

@@ -128,11 +128,31 @@ class KnowledgeService:
             vectors = await self._embedder.embed([request.query])
             if not vectors:
                 return []
-            return await self._store.search(request.kb_id, vectors[0], request.top_k)
+            hits = await self._store.search(request.kb_id, vectors[0], request.top_k)
+            # 过滤相关性低于阈值的段：score = 1 - cosine_distance，越大越相似。无阈值时任意无关
+            # 提问也会注入 top_k 段诱导幻觉；过滤后为空时上层自然走既有 empty_reply 分支。
+            threshold = settings.knowledge_score_threshold
+            return [hit for hit in hits if hit.score >= threshold]
         except KnowledgeError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise KnowledgeError("KNOWLEDGE_SEARCH_ERROR", str(exc)) from exc
+
+    async def delete_kb(self, kb_id: str) -> bool:
+        try:
+            return await self._store.delete_base(kb_id)
+        except KnowledgeError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise KnowledgeError("KNOWLEDGE_DELETE_KB_ERROR", str(exc)) from exc
+
+    async def delete_document(self, doc_id: str) -> bool:
+        try:
+            return await self._store.delete_document(doc_id)
+        except KnowledgeError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise KnowledgeError("KNOWLEDGE_DELETE_DOCUMENT_ERROR", str(exc)) from exc
 
 
 __all__ = ["KnowledgeService"]
