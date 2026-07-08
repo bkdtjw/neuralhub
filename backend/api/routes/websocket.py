@@ -95,6 +95,9 @@ class ConnectionManager:
         try:
             if store is None:
                 return
+            history = loop.message_history
+            if history.has_checkpoint_fn and not history.checkpoint_failed:
+                return
             await store.save_messages(session_id, loop.messages)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_SYNC_MESSAGES_ERROR", str(exc)) from exc
@@ -140,16 +143,14 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
             data = await websocket.receive_json()
             msg_type = data.get("type")
             if msg_type == "run":
-                loop = manager.get_loop(session_id)
+                # 忙判定以任务存活为准：旧的状态集合会漏掉 compacting/waiting_approval，
+                # 从而在这些阶段放行第二个 run，造成同一 loop 并发。task 未结束即拒绝，
+                # 拒绝并发后下方 manager._tasks[session_id] = task 也不会再覆盖存活句柄。
                 task = manager._tasks.get(session_id)
-                if (
-                    loop
-                    and loop.status in {"thinking", "tool_calling"}
-                    and task
-                    and not task.done()
-                ):
+                if task and not task.done():
                     await websocket.send_json({"type": "error", "message": "Agent is busy"})
                     continue
+                loop = manager.get_loop(session_id)
                 settings = await resolve_loop_settings(parse_loop_settings(data), provider_manager)
                 state = websocket.app.state
                 user_message = str(data.get("message", "")).strip()

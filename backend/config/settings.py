@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     zhetaoke_tb_pid: str = ""
     compact_threshold_l2: float = Field(default=0.5, ge=0.0, le=1.0)
     compact_threshold_l3: float = Field(default=0.7, ge=0.0, le=1.0)
+    # 上下文压缩的 token 上限，保守默认；可按模型上下文窗口调大（如 200000 / 1000000）。
+    max_context_tokens: int = 128000
 
     @field_validator("morning_report_user_ids", mode="before")
     @classmethod

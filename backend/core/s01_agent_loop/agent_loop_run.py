@@ -19,6 +19,7 @@ from .agent_loop_support import (
     patch_orphan_tool_calls,
     response_content,
 )
+from .compaction_writeback import apply_layered_compaction
 from .failure_recovery import ToolFailureRecoveryTracker
 from .streaming import complete_with_stream
 from .tool_batching import merge_results, partition_by_side_effect
@@ -56,21 +57,11 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 iteration_count += 1
                 loop._set_status("thinking")
                 tool_definitions = loop._executor.list_definitions()
+                # 差量写回：压缩基于 await 前快照整表覆盖，await 期间并发 run 追加到尾部的
+                # 消息会被丢弃。apply_layered_compaction 在每处 await 前取 snapshot_len，写回时
+                # 把尾部新增消息接回，保住并发追加的消息（详见 compaction_writeback）。
                 messages = loop._history.raw_messages
-                messages[:] = await loop._layered_compressor.check_and_compact(
-                    messages,
-                    tool_definitions,
-                )
-                messages[:] = await loop._layered_compressor.summarize_and_archive(
-                    messages,
-                    tool_definitions,
-                )
-                estimated_tokens = loop._token_counter.estimate_messages_tokens(messages)
-                estimated_tokens += loop._token_counter.estimate_tools_tokens(tool_definitions)
-                if loop._compressor.policy.should_compact(estimated_tokens):
-                    loop._set_status("compacting")
-                    messages[:] = await loop._compressor.compact(messages)
-                    loop._set_status("thinking")
+                await apply_layered_compaction(loop, messages, tool_definitions)
                 guard_prompt = loop_guard.prompt_for_iteration(iteration_count)
                 if guard_prompt is not None:
                     await loop._append_message(Message(role="user", content=guard_prompt.content))

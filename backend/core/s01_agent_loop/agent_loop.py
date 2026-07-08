@@ -74,7 +74,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._compressor = compressor or ContextCompressor(
             adapter=adapter,
             model=config.model,
-            policy=ThresholdPolicy(),
+            policy=ThresholdPolicy(max_context_tokens=settings.max_context_tokens),
         )
         self._layered_compressor = LayeredCompressor(
             adapter,
@@ -83,6 +83,7 @@ class AgentLoop(AgentLoopApprovalMixin):
                 threshold_l2=settings.compact_threshold_l2,
                 threshold_l3=settings.compact_threshold_l3,
                 session_id=config.session_id,
+                max_context_tokens=settings.max_context_tokens,
             ),
         )
         self._token_counter = TokenCounter()
@@ -94,6 +95,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._tool_approval_reasons: dict[str, str] = {}
         self._tool_approval_timeout_seconds = 300.0
         self._aborted = False
+        self._run_lock = asyncio.Lock()
 
     def on(self, handler: AgentEventHandler) -> None:
         self._handlers.append(handler)
@@ -136,7 +138,10 @@ class AgentLoop(AgentLoopApprovalMixin):
         return self._agent_spec
 
     async def run(self, user_message: str) -> Message:
-        return await run_agent_loop(self, user_message)
+        # 串行化同一 loop 的 run，兜住 busy 判定的 TOCTOU（本库无同 loop 重入调用故不会死锁）。
+        # abort 不经过此锁，仅置位 _aborted / 唤醒审批事件，运行中的 run 仍能被正常打断。
+        async with self._run_lock:
+            return await run_agent_loop(self, user_message)
 
     def abort(self) -> None:
         self._aborted = True

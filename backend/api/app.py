@@ -19,7 +19,7 @@ from backend.storage import SessionStore, init_db
 
 from .feishu_startup import init_feishu_handler
 from .frontend import mount_frontend
-from .lifespan_support import check_readiness, init_task_queue
+from .lifespan_support import check_readiness, init_task_queue, start_artifact_gc, stop_artifact_gc
 from .middleware.request_trace import RequestTraceMiddleware
 
 logger = get_logger(component="api_app")
@@ -44,6 +44,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.spec_registry = spec_registry
         app.state.agent_runtime = agent_runtime
         init_task_queue(app)
+        start_artifact_gc(app)
         try:
             from backend.adapters.provider_manager import ProviderManager
             from backend.core.s02_tools.mcp import MCPServerManager
@@ -107,6 +108,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:  # noqa: BLE001
         raise AgentError("APP_LIFESPAN_ERROR", str(exc)) from exc
     finally:
+        await stop_artifact_gc(app)
         if task_scheduler is not None:
             try:
                 await task_scheduler.stop()

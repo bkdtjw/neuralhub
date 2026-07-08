@@ -9,6 +9,8 @@ from typing import Any
 
 from backend.common.types import ToolArtifact, ToolResult
 
+from .token_counter import estimate_tokens
+
 
 @dataclass(frozen=True)
 class ArtifactWriteRequest:
@@ -19,7 +21,8 @@ class ArtifactWriteRequest:
 
 
 def token_count(text: str) -> int:
-    return max(1, len(text) // 4) if text else 0
+    # 与 token_counter.estimate_tokens 同口径（CJK 加权），非空至少计 1。
+    return max(1, estimate_tokens(text)) if text else 0
 
 
 def sink_tool_result(result: ToolResult, artifacts_dir: str, session_id: str) -> ToolResult:
