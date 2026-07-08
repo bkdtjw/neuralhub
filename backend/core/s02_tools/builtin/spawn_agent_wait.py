@@ -48,11 +48,21 @@ async def wait_for_prepared_tasks(
                 _log_wait_result(prepared, statuses, started_at)
                 return statuses
             await asyncio.sleep(0.5)
+    except asyncio.CancelledError:
+        # 父任务被取消：联动取消已提交到队列/正在 sub_worker 运行的子任务，避免它们继续占用 worker。
+        await _cancel_prepared(prepared, deps)
+        raise
     finally:
         if not waiter.done():
             waiter.cancel()
             with suppress(asyncio.CancelledError):
                 await waiter
+
+
+async def _cancel_prepared(prepared: list[PreparedTask], deps: SpawnAgentDeps) -> None:
+    for item in prepared:
+        with suppress(Exception):
+            await deps.task_queue.cancel(item.task_id)
 
 
 def _log_wait_result(

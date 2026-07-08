@@ -15,6 +15,7 @@ from backend.common.prometheus_metrics import observe_sub_agent_task
 from backend.common.tracing import trace_span
 from backend.core.s05_skills import AgentRuntime
 from backend.core.task_queue import TaskPayload, TaskQueue
+from backend.core.task_queue_cancel import PARENT_CANCELLED_ERROR
 from backend.storage import SessionStore
 
 from . import task_queue_consumer_helpers as helpers
@@ -63,10 +64,8 @@ async def execute_sub_agent_task(payload: TaskPayload, context: SubAgentConsumer
         return
     timeout_seconds = helpers._timeout_seconds(payload.input_data)
     started_at = monotonic()
-    heartbeat = asyncio.create_task(
-        helpers._heartbeat_loop(context.queue, payload.task_id, interval=HEARTBEAT_INTERVAL_SECONDS, extension=LEASE_EXTENSION_SECONDS),  # noqa: E501
-        name=f"sub-agent-heartbeat-{payload.task_id}",
-    )
+    cancel_event = asyncio.Event()
+    heartbeat: asyncio.Task[None] | None = None
     try:
         spec_id = str(payload.input_data.get("spec_id", ""))
         role = str(payload.input_data.get("role", ""))
@@ -80,7 +79,12 @@ async def execute_sub_agent_task(payload: TaskPayload, context: SubAgentConsumer
             )
             loop, restored = await _build_sub_agent_loop(payload, context.runtime)
             run_input = "请继续之前未完成的任务" if restored else str(payload.input_data.get("input", ""))  # noqa: E501
-            result = await asyncio.wait_for(loop.run(run_input), timeout=timeout_seconds)
+            run_task = asyncio.create_task(loop.run(run_input), name=f"sub-agent-run-{payload.task_id}")  # noqa: E501
+            heartbeat = asyncio.create_task(
+                helpers._heartbeat_loop(context.queue, payload.task_id, HEARTBEAT_INTERVAL_SECONDS, LEASE_EXTENSION_SECONDS, run_task, cancel_event),  # noqa: E501
+                name=f"sub-agent-heartbeat-{payload.task_id}",
+            )
+            result = await asyncio.wait_for(run_task, timeout=timeout_seconds)
             completed = await context.queue.complete(
                 payload.task_id,
                 {
@@ -106,36 +110,30 @@ async def execute_sub_agent_task(payload: TaskPayload, context: SubAgentConsumer
             status="succeeded",
             duration_ms=int(duration_seconds * 1000),
         )
-    except TimeoutError:
-        duration_seconds = monotonic() - started_at
-        observe_sub_agent_task("error", duration_seconds)
-        await record_latency_sample("sub_agent_task", int(duration_seconds * 1000))
-        error = f"子 agent 执行超时（{timeout_seconds}s）"
-        await helpers._safe_fail(context.queue, payload.task_id, error, payload.worker_id)
-        logger.error(
-            "sub_agent_task_failed",
+    except asyncio.CancelledError:
+        if not cancel_event.is_set():
+            raise
+        await helpers._safe_fail(context.queue, payload.task_id, PARENT_CANCELLED_ERROR, payload.worker_id)  # noqa: E501
+        logger.warning(
+            "sub_agent_task_cancelled",
             task_id=payload.task_id,
             worker_id=payload.worker_id,
-            error=error,
-            duration_ms=int(duration_seconds * 1000),
+        )
+    except TimeoutError:
+        await helpers._record_task_failure(
+            context.queue, payload.task_id, payload.worker_id,
+            f"子 agent 执行超时（{timeout_seconds}s）", started_at,
         )
     except Exception as exc:  # noqa: BLE001
-        duration_seconds = monotonic() - started_at
-        observe_sub_agent_task("error", duration_seconds)
-        await record_latency_sample("sub_agent_task", int(duration_seconds * 1000))
-        error = f"子 agent 执行失败：{exc}"
-        await helpers._safe_fail(context.queue, payload.task_id, error, payload.worker_id)
-        logger.exception(
-            "sub_agent_task_failed",
-            task_id=payload.task_id,
-            worker_id=payload.worker_id,
-            error=error,
-            duration_ms=int(duration_seconds * 1000),
+        await helpers._record_task_failure(
+            context.queue, payload.task_id, payload.worker_id,
+            f"子 agent 执行失败：{exc}", started_at, exc_info=True,
         )
     finally:
-        heartbeat.cancel()
-        with suppress(asyncio.CancelledError):
-            await heartbeat
+        if heartbeat is not None:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
 
 
 async def _build_sub_agent_loop(

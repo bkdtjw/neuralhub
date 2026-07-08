@@ -2,17 +2,13 @@ from __future__ import annotations
 from time import time
 from typing import Any
 
-from backend.common.errors import AgentError
 from backend.common.logging import get_log_context, get_logger
+from backend.core.task_queue_cancel import TaskQueueError, cancel_flag_active, cancel_payload_task
 from backend.core.task_queue_persistence import TaskPersistence
 from backend.core.task_queue_support import recover_stale_task_payloads, update_terminal_payload_state, wait_for_task_payloads
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")
-
-
-class TaskQueueError(AgentError):
-    pass
 
 
 class TaskQueue:
@@ -144,6 +140,12 @@ class TaskQueue:
         if self._persistence is None or not parent_task_id:
             return []
         return await self._persistence.get_children(parent_task_id)
+
+    async def cancel(self, task_id: str, worker_id: str = "") -> bool:
+        return await cancel_payload_task(self, task_id, worker_id)
+
+    async def is_cancel_requested(self, task_id: str) -> bool:
+        return await cancel_flag_active(self, task_id)
 
     async def _save_payload(self, payload: TaskPayload) -> None:
         if self._persistence is not None:

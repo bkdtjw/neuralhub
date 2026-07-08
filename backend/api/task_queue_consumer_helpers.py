@@ -1,13 +1,39 @@
 from __future__ import annotations
 
 import asyncio
+from time import monotonic
 from typing import Any
 
 from backend.common.logging import get_logger
+from backend.common.metrics import record_latency_sample
+from backend.common.prometheus_metrics import observe_sub_agent_task
 from backend.common.types import Message
 from backend.core.task_queue import TaskQueue
 
 logger = get_logger(component="sub_agent_consumer")
+
+
+async def _record_task_failure(
+    queue: TaskQueue,
+    task_id: str,
+    worker_id: str,
+    error: str,
+    started_at: float,
+    *,
+    exc_info: bool = False,
+) -> None:
+    duration_seconds = monotonic() - started_at
+    observe_sub_agent_task("error", duration_seconds)
+    await record_latency_sample("sub_agent_task", int(duration_seconds * 1000))
+    await _safe_fail(queue, task_id, error, worker_id)
+    log = logger.exception if exc_info else logger.error
+    log(
+        "sub_agent_task_failed",
+        task_id=task_id,
+        worker_id=worker_id,
+        error=error,
+        duration_ms=int(duration_seconds * 1000),
+    )
 
 
 async def _heartbeat_loop(
@@ -15,11 +41,21 @@ async def _heartbeat_loop(
     task_id: str,
     interval: float,
     extension: float,
+    run_task: asyncio.Task[Any] | None = None,
+    cancel_event: asyncio.Event | None = None,
 ) -> None:
     while True:
         await asyncio.sleep(interval)
         try:
             await queue.renew_lease(task_id, extension)
+            if (
+                run_task is not None
+                and cancel_event is not None
+                and await queue.is_cancel_requested(task_id)
+            ):
+                cancel_event.set()
+                run_task.cancel()
+                return
         except Exception as exc:  # noqa: BLE001
             logger.warning("sub_agent_task_heartbeat_error", task_id=task_id, error=str(exc))
 
@@ -84,6 +120,7 @@ __all__ = [
     "_heartbeat_loop",
     "_loop_config_value",
     "_payload_log_context",
+    "_record_task_failure",
     "_restored_messages",
     "_safe_fail",
     "_timeout_seconds",
