@@ -69,9 +69,12 @@ def _trace_id_from_request(request: Request) -> str:
 
 
 def _route_path(request: Request) -> str:
+    # 只把【已注册的路由模板】作为指标 label，未匹配路由（404、公网扫描 /.env、/wp-admin 等）
+    # 一律归到固定常量，否则每个随机 URL 都会生成新 label 组合（Prometheus Counter/Histogram
+    # 永不回收），长时间运行 label 基数无限膨胀 → 内存持续增长直至 OOM。
     route = request.scope.get("route")
     path = getattr(route, "path", "")
-    return str(path or request.url.path)
+    return str(path) if path else "unmatched"
 
 
 __all__ = ["RequestTraceError", "RequestTraceMiddleware", "TRACE_HEADER"]

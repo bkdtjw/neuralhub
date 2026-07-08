@@ -22,6 +22,9 @@ class ProviderManager:
         self._seed_path = Path(config_path) if config_path else DEFAULT_PROVIDER_SEED_PATH
         self._store = store or ProviderStore()
         self._aliases = {"openai": "openai_compat", "openai_compatible": "openai_compat", "claude_compat": "anthropic", "anthropic_compat": "anthropic"}
+        # 进程内缓存：DB(ProviderStore) 是权威，但此缓存【不跨 gunicorn worker 失效】。
+        # 多 worker 下一个 worker 改配置后其它 worker 仍读旧值——故默认单 worker（见 gunicorn_conf.py）。
+        # 若要支持多 worker，需在写入(add/update/remove/set_default)处经 Redis pub/sub 广播失效、各 worker 重置 _initialized。
         self._providers: dict[str, ProviderConfig] = {}
         self._adapters: dict[str, LLMAdapter] = {}
         self._routed_adapters: dict[str, LLMAdapter] = {}
