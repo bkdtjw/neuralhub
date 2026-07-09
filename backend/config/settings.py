@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     twitter_password: str = ""
     twitter_proxy_url: str = ""
     twitter_cookies_file: str = "twitter_cookies.json"
+    # X 搜索 REST API（P1）——特性开关，默认关闭；关闭时 /api/x 路由不注册，对现网零影响。
+    x_api_enabled: bool = False
+    # 同参数搜索缓存 TTL；命中期间不再打 X，省额度又躲限流。0 = 不缓存。
+    x_search_cache_ttl_seconds: int = Field(default=300, ge=0)
+    # 真实 X 调用的全局最小间隔（秒），保护共享账号不被打爆。0 = 不限。
+    x_call_min_interval_seconds: float = Field(default=5.0, ge=0.0)
+    # 每日真实 X 调用额度；打满后新接口返回 429，Agent 工具与 AI 早报不受影响。
+    x_daily_call_budget: int = Field(default=200, ge=1)
     workspace_roots: str = ""
     notion_api_key: str = ""
     llm_fallback_provider_ids: str = ""

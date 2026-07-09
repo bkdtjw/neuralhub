@@ -194,6 +194,10 @@ def create_app() -> FastAPI:
         app.include_router(feishu.router)
         app.include_router(feishu_card_action.router)
 
+    if app_settings.x_api_enabled:
+        from backend.api.routes import x_api
+        app.include_router(x_api.router)
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         try:
