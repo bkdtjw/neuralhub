@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +21,10 @@ from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
 from backend.tests.unit.x_test_support import install_twikit_module
 from backend.tests.unit.youtube_test_support import install_transcript_module
+
+
+# 用"1 小时前"的时间戳，稳定落在 max_age_hours(48h)窗口内——避免硬编码日期随时间过期被策展(curation)按 stale 丢弃。
+_RECENT_ISO = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
 
 
 def test_map_x_post_maps_client_fields() -> None:
@@ -97,12 +102,12 @@ async def test_execute_continues_when_keyword_and_youtube_fail(
             SimpleNamespace(
                 author_name="Reporter",
                 author_handle="reporter",
-                text=f"{query} success",
+                text=f"{query} success reporting on Claude Code updates",
                 likes=1,
                 retweets=3,
                 replies=0,
-                views=10,
-                created_at="2026-04-26",
+                views=500,
+                created_at=_RECENT_ISO,
                 url=f"https://x.com/reporter/{query}",
             )
         ]
@@ -151,9 +156,10 @@ def test_register_builtin_tools_adds_collect_and_keeps_x_search(
 def _tweet(label: str, retweets: int) -> RawTweet:
     return RawTweet(
         author="@test",
-        text=f"{label} tweet",
+        text=f"{label} tweet discussing Claude Code release notes",
         retweets=retweets,
-        created_at="2026-04-26",
+        views=500,
+        created_at=_RECENT_ISO,
         url=f"https://x.com/test/{label}",
     )
 

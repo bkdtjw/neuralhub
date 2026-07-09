@@ -705,4 +705,7 @@ class TestTaskExecutor:
             task_queue=None,
             checkpoint_fn=ANY,
         )
-        mock_loop.run.assert_called_once_with("hello")
+        # 执行器给 run 输入前置"今天是…(北京时间)"日期横幅(防模型凭记忆写错年份/日期)，
+        # 故只断言调用一次且输入以真实 prompt 结尾，不锁死动态日期前缀。
+        mock_loop.run.assert_called_once()
+        assert mock_loop.run.call_args.args[0].endswith("hello")

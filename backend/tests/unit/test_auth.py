@@ -37,6 +37,13 @@ class FakeMCPManager:
         self._statuses.clear()
 
 
+@pytest.fixture(autouse=True)
+def bind_test_database() -> Generator[None, None, None]:
+    # 覆盖 conftest 的真库绑定：本模块鉴权测试全程不碰 DB（client fixture 已 no-op init_db，
+    # 受保护路由在鉴权层即 401），跳过 PostgresContainer——既加速又消除 asyncpg 事件循环 teardown flake。
+    yield
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     original_secret = settings.auth_secret
