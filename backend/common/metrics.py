@@ -36,6 +36,7 @@ METRIC_NAMES = (
     "task_failures",
     "feishu_messages",
     "feishu_replies",
+    "feishu_dedup_failures",
     "agent_runs",
     "plan_step_results_persisted",
     "plan_step_resumed_from_disk",

@@ -136,6 +136,22 @@ async def test_stale_abort_does_not_cancel_next_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_residual_abort_flag_cleared_on_next_run() -> None:
+    # abort() 只置位 _aborted；下一轮 run() 应在入口清零该标志正常执行，
+    # 而非因残留标志让本轮消息未入历史就误报 LOOP_ABORTED。
+    loop = AgentLoop(
+        AgentConfig(model="test-model"),
+        MockAdapter([LLMResponse(content="hello")]),
+        ToolRegistry(),
+    )
+    loop.abort()
+    result = await loop.run("stop")
+    assert result.role == "assistant"
+    assert result.content == "hello"
+    assert any(msg.role == "user" and msg.content == "stop" for msg in loop.messages)
+
+
+@pytest.mark.asyncio
 async def test_abort_during_run_interrupts_then_next_run_recovers() -> None:
     loop_holder: dict[str, AgentLoop] = {}
 

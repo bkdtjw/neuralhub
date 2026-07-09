@@ -7,6 +7,19 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.routes.feishu_knowledge_tasks import run_knowledge_ingest_batch_payload
+from backend.api.routes.feishu_knowledge_upload_batch_support import (
+    batch_timeout,
+    batch_ttl,
+    clear_batch,
+    count_key,
+    files_key,
+    first_key,
+    last_key,
+    lock_key,
+    notify_batch_submitted,
+    remove_submitted_files,
+    size_key,
+)
 from backend.common.logging import get_logger
 from backend.common.utils.id_generator import generate_id
 from backend.config import get_redis
@@ -45,16 +58,16 @@ async def add_file_to_upload_batch(
     if redis is None:
         await submit_ingest_batch(context, [file])
         return batch_key
-    ttl = _batch_ttl(config)
+    ttl = batch_ttl(config)
     now = time()
-    await redis.set(_first_key(batch_key), str(now), nx=True, ex=ttl)
-    await redis.set(_last_key(batch_key), str(now), ex=ttl)
-    await redis.rpush(_files_key(batch_key), file.model_dump_json())
-    await redis.expire(_files_key(batch_key), ttl)
-    count = int(await redis.incr(_count_key(batch_key)))
-    total_size = int(await redis.incrby(_size_key(batch_key), max(file.file_size, 0)))
-    await redis.expire(_count_key(batch_key), ttl)
-    await redis.expire(_size_key(batch_key), ttl)
+    await redis.set(first_key(batch_key), str(now), nx=True, ex=ttl)
+    await redis.set(last_key(batch_key), str(now), ex=ttl)
+    await redis.rpush(files_key(batch_key), file.model_dump_json())
+    await redis.expire(files_key(batch_key), ttl)
+    count = int(await redis.incr(count_key(batch_key)))
+    total_size = int(await redis.incrby(size_key(batch_key), max(file.file_size, 0)))
+    await redis.expire(count_key(batch_key), ttl)
+    await redis.expire(size_key(batch_key), ttl)
     asyncio.create_task(_delayed_flush(batch_key, context, config))
     if count >= config.max_files or total_size >= config.max_total_bytes:
         await flush_upload_batch(batch_key, context, config)
@@ -69,45 +82,50 @@ async def flush_upload_batch(
     redis = get_redis()
     if redis is None:
         return
-    locked = await redis.set(_lock_key(batch_key), "1", nx=True, ex=60)
+    locked = await redis.set(lock_key(batch_key), "1", nx=True, ex=60)
     if not locked:
         return
     try:
-        raw_files = await redis.lrange(_files_key(batch_key), 0, -1)
+        raw_files = await redis.lrange(files_key(batch_key), 0, -1)
         files = [
             FeishuFileItem.model_validate_json(str(raw))
             for raw in raw_files
             if str(raw).strip()
         ]
-        await _clear_batch(redis, batch_key)
-        await submit_ingest_batch(context, files)
+        try:
+            await submit_ingest_batch(context, files)
+        except Exception as exc:  # noqa: BLE001
+            # 提交失败：批次保留在 Redis（不 clear），重新 arm 一次延迟 flush 以便重投，
+            # 避免仅靠 TTL 过期而静默丢文件。
+            logger.error("upload_batch_submit_failed", batch_key=batch_key, error=str(exc))
+            asyncio.create_task(_delayed_flush(batch_key, context, config))
+            return
+        # 提交成功：按读取到的文件数 LTRIM 精确移除已提交项，保留提交窗口期 rpush 到达的
+        # 新文件（不被整键清空），再清理其余批次元数据 key。
+        await remove_submitted_files(redis, batch_key, len(raw_files))
+        await clear_batch(redis, batch_key)
     finally:
-        await redis.delete(_lock_key(batch_key))
+        await redis.delete(lock_key(batch_key))
 
 
 async def submit_ingest_batch(context: Any, files: list[FeishuFileItem]) -> None:
     if not files:
         return
-    chat_id = files[0].chat_id
-    kb_name = files[0].kb_name
-    await context.handler._menu_state.clear_pending(files[0].open_id)  # noqa: SLF001
-    await context.handler._send_chat_text(  # noqa: SLF001
-        chat_id,
-        f"收到 {len(files)} 个文件，正在入库到「{kb_name}」",
-    )
     payload = {
         "kind": "knowledge_ingest_batch",
-        "chat_id": chat_id,
+        "chat_id": files[0].chat_id,
         "kb_id": files[0].kb_id,
-        "kb_name": kb_name,
+        "kb_name": files[0].kb_name,
         "task_id": generate_id(),
         "files": [file.model_dump() for file in files],
     }
     queue = context.handler._task_queue  # noqa: SLF001
     if queue is not None:
-        await queue.submit(payload["task_id"], payload, _batch_timeout(files), 0)
-        return
-    asyncio.create_task(run_knowledge_ingest_batch_payload(payload))
+        await queue.submit(payload["task_id"], payload, batch_timeout(files), 0)
+    else:
+        asyncio.create_task(run_knowledge_ingest_batch_payload(payload))
+    # queue.submit 是唯一决定入库成败的步骤；提交成功后清 pending 与提示均容错。
+    await notify_batch_submitted(context, files)
 
 
 def build_upload_batch_key(file: FeishuFileItem) -> str:
@@ -128,8 +146,8 @@ async def _should_flush(batch_key: str, config: UploadBatchConfig) -> bool:
     redis = get_redis()
     if redis is None:
         return False
-    first = await redis.get(_first_key(batch_key))
-    last = await redis.get(_last_key(batch_key))
+    first = await redis.get(first_key(batch_key))
+    last = await redis.get(last_key(batch_key))
     if first is None or last is None:
         return False
     now = time()
@@ -139,48 +157,6 @@ async def _should_flush(batch_key: str, config: UploadBatchConfig) -> bool:
         now - last_seen >= config.quiet_window_seconds
         or now - first_seen >= config.max_wait_seconds
     )
-
-
-async def _clear_batch(redis: Any, batch_key: str) -> None:
-    await redis.delete(
-        _files_key(batch_key),
-        _first_key(batch_key),
-        _last_key(batch_key),
-        _count_key(batch_key),
-        _size_key(batch_key),
-    )
-
-
-def _batch_timeout(files: list[FeishuFileItem]) -> int:
-    return max(900, min(12 * 3600, 900 * len(files)))
-
-
-def _batch_ttl(config: UploadBatchConfig) -> int:
-    return int(config.max_wait_seconds + config.quiet_window_seconds + 120)
-
-
-def _files_key(batch_key: str) -> str:
-    return f"{batch_key}:files"
-
-
-def _first_key(batch_key: str) -> str:
-    return f"{batch_key}:first_seen"
-
-
-def _last_key(batch_key: str) -> str:
-    return f"{batch_key}:last_seen"
-
-
-def _count_key(batch_key: str) -> str:
-    return f"{batch_key}:count"
-
-
-def _size_key(batch_key: str) -> str:
-    return f"{batch_key}:total_size"
-
-
-def _lock_key(batch_key: str) -> str:
-    return f"{batch_key}:lock"
 
 
 __all__ = [

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-import backend.core.task_queue_recovery as task_queue_recovery
+import backend.core.task_queue_recover_support as task_queue_recover_support
 from backend.common.logging import bound_log_context
 from backend.config import get_redis
 from backend.core.task_queue import TaskQueue
@@ -72,7 +72,7 @@ async def test_empty_stale_scan_logs_at_debug(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_logger = FakeLogger()
-    monkeypatch.setattr(task_queue_recovery, "logger", fake_logger)
+    monkeypatch.setattr(task_queue_recover_support, "logger", fake_logger)
 
     recovered = await queue.recover_stale_tasks()
 

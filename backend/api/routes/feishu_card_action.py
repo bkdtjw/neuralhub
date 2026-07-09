@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -12,7 +10,6 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from backend.common.logging import bound_log_context, get_logger, new_trace_id
-from backend.config.settings import settings as app_settings
 from backend.core.s07_task_system import TaskExecutionError
 from backend.core.s07_task_system.output_preview import (
     build_task_output_preview,
@@ -28,6 +25,7 @@ from .feishu_card_approval import (
     handle_tool_reject,
 )
 from .feishu_knowledge_actions import register_kb_select
+from .feishu_signature_support import request_signature_ok
 
 logger = get_logger(component="feishu_card_action")
 
@@ -150,19 +148,6 @@ dispatcher.register("tool_reject", handle_tool_reject)
 register_kb_select(dispatcher)
 
 
-def _verify_signature(body: bytes, timestamp: str, signature: str) -> bool:
-    token = app_settings.feishu_verification_token
-    if not token:
-        return True
-    string_to_sign = f"{timestamp}\n{token}"
-    expected = hmac.new(
-        string_to_sign.encode("utf-8"),
-        body,
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
-
-
 @router.post("/card_action")
 async def card_action(request: Request) -> dict[str, Any]:
     return await _handle_card_action_request(request)
@@ -189,13 +174,11 @@ async def _handle_card_action_request(request: Request) -> dict[str, Any]:
     if data.get("type") == "url_verification":
         return {"challenge": data.get("challenge", "")}
 
-    # Signature verification
-    timestamp = request.headers.get("X-Lark-Signature-Timestamp", "")
-    signature = request.headers.get("X-Lark-Signature-Signature", "")
-    if timestamp and signature:
-        if not _verify_signature(body, timestamp, signature):
-            logger.warning("feishu_signature_invalid")
-            return {}
+    # Signature verification (url_verification challenge above is handled first
+    # on purpose: Feishu's callback-URL challenge may arrive unsigned).
+    if not request_signature_ok(request, body):
+        logger.warning("feishu_signature_invalid")
+        return {}
 
     try:
         payload = FeishuCardActionPayload.model_validate(data)

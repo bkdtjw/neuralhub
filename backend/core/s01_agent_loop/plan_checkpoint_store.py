@@ -97,6 +97,23 @@ class PlanCheckpointStore:
             removed += 1
         return removed
 
+    def cleanup_stale(self, max_stale_days: int = 30) -> int:
+        # 补 cleanup 的空白：cleanup 永久保留非终态 checkpoint，长期运行会线性堆积拖慢扫描。
+        # 这里只删「能解析为非终态且 mtime 超龄」的 json/bak；终态与损坏文件仍交给 cleanup。
+        cutoff = time.time() - max_stale_days * 86400
+        removed = 0
+        for path in sorted(self._base_dir.glob("*")):
+            if not path.is_file() or path.suffix not in {".json", ".bak"}:
+                continue
+            if path.stat().st_mtime >= cutoff:
+                continue
+            state = _load_state(path)
+            if state is None or state.phase in TERMINAL_PHASES:
+                continue
+            path.unlink()
+            removed += 1
+        return removed
+
     def _latest_path(self, session_id: str) -> Path | None:
         _validate_file_part(session_id, "session_id")
         paths = [path for path in self._base_dir.glob(f"{session_id}-*.json") if path.is_file()]

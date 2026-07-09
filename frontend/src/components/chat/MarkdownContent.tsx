@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -88,7 +88,7 @@ const components: Components = {
   td: ({ children }) => <td className="border border-[var(--as-border)] px-2 py-1 align-top">{children}</td>,
 };
 
-export default function MarkdownContent({ content }: MarkdownContentProps) {
+function MarkdownContent({ content }: MarkdownContentProps) {
   return (
     <div className="as-markdown text-sm leading-7 text-[var(--as-text)]">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
@@ -97,3 +97,6 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
     </div>
   );
 }
+
+// memo：历史气泡的 content 为稳定字符串，流式期间跳过整棵 ReactMarkdown/Prism 重渲。
+export default memo(MarkdownContent);

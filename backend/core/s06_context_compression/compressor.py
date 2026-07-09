@@ -7,6 +7,7 @@ from backend.common.errors import AgentError
 from backend.common.types import LLMRequest, Message
 from backend.core.system_prompt import COMPRESSION_RETENTION_TEMPLATE
 
+from .boundary import align_recent_boundary
 from .summary_helpers import build_summary_message, is_summary_message
 from .threshold_policy import ThresholdPolicy
 
@@ -64,8 +65,9 @@ class ContextCompressor:
             reserve_count = self._policy.get_reserve_count()
             if len(non_system_messages) <= reserve_count:
                 return list(messages)
-            old_messages = non_system_messages[:-reserve_count]
-            recent_messages = non_system_messages[-reserve_count:]
+            old_messages, recent_messages = align_recent_boundary(
+                non_system_messages, reserve_count
+            )
             if not old_messages:
                 return list(messages)
             summary_error = ""
@@ -200,8 +202,7 @@ class ContextCompressor:
             if message.role != "system" and not is_summary_message(message)
         ]
         reserve_count = self._policy.get_reserve_count()
-        recent_messages = non_system_messages[-reserve_count:] if reserve_count > 0 else []
-        old_messages = non_system_messages[:-reserve_count] if reserve_count > 0 else non_system_messages
+        old_messages, recent_messages = align_recent_boundary(non_system_messages, reserve_count)
         summary = self._build_fallback_summary(old_messages)
         summary_message = build_summary_message(summary, error=error.message)
         return [*system_messages, *summary_messages, summary_message, *recent_messages]

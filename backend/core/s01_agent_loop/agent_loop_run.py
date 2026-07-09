@@ -19,12 +19,20 @@ from .agent_loop_support import (
     patch_orphan_tool_calls,
     response_content,
 )
+from .compaction_writeback import apply_layered_compaction
 from .failure_recovery import ToolFailureRecoveryTracker
 from .streaming import complete_with_stream
 from .tool_batching import merge_results, partition_by_side_effect
 
 if TYPE_CHECKING:
     from .agent_loop import AgentLoop
+
+
+async def _patch_and_checkpoint(loop: AgentLoop) -> None:
+    # 收尾自愈：为末尾“带 tool_calls 无 tool_results 的 assistant”补合成 tool 结果并落盘。
+    existing_count = len(loop._history)
+    patch_orphan_tool_calls(loop._history.raw_messages)
+    await loop._history.checkpoint_from(existing_count)
 
 
 async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
@@ -40,7 +48,10 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
         {"session_id": _session_id, "model": loop._config.model, "provider": loop._config.provider},
     ) as run_span:
         try:
-            # 残留的中断标志只可能来自上一次"停止"，清零即可，不应中断本次新任务
+            # 清零残留中止标志但不抛错：残留标志只可能来自上一次“停止”（上一轮被 task.cancel()
+            # 打断或空闲期 abort 会留下 _aborted=True），不应中断本次新任务；在此重抛会让本轮消息
+            # 未入历史就误报 LOOP_ABORTED（运行中的中止仍由循环内 loop._aborted 判定 + websocket
+            # 的 task.cancel() 覆盖，语义不丢）。
             loop._aborted = False
             loop._ensure_system_message()
             await loop._append_message(Message(role="user", content=user_message))
@@ -54,11 +65,11 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 iteration_count += 1
                 loop._set_status("thinking")
                 tool_definitions = loop._executor.list_definitions()
+                # 差量写回：压缩基于 await 前快照整表覆盖，await 期间并发 run 追加到尾部的
+                # 消息会被丢弃。apply_layered_compaction 在每处 await 前取 snapshot_len，写回时
+                # 把尾部新增消息接回，保住并发追加的消息（详见 compaction_writeback）。
                 messages = loop._history.raw_messages
-                messages[:] = await loop._layered_compressor.compress(
-                    messages,
-                    tool_definitions,
-                )
+                await apply_layered_compaction(loop, messages, tool_definitions)
                 guard_prompt = loop_guard.prompt_for_iteration(iteration_count)
                 if guard_prompt is not None:
                     await loop._append_message(
@@ -183,9 +194,12 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
             observe_agent_run("error", duration_seconds)
             await record_latency_sample("agent_run", int(duration_seconds * 1000))
             logger.exception("agent_run_error", iterations=iteration_count)
-            existing_count = len(loop._history)
-            patch_orphan_tool_calls(loop._history.raw_messages)
-            await loop._history.checkpoint_from(existing_count)
+            await _patch_and_checkpoint(loop)
+            raise
+        except BaseException:
+            # 取消/中断（CancelledError 等）：只做孤儿修补 + checkpoint 后原样重抛，
+            # 不重复 emit error/metrics（那是 Exception 分支的事），务必重抛不吞。
+            await _patch_and_checkpoint(loop)
             raise
         finally:
             # task.cancel() 抛出的 CancelledError 不经过上面的 except，

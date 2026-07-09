@@ -4,6 +4,11 @@ import type { WsIncoming } from "@/types";
 type Handler = (payload: unknown) => void;
 
 const WS_BASE = import.meta.env.VITE_WS_BASE || "";
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+// 连续退避重连累计达到该次数仍未成功 → emit "give-up"，让 UI 切到“已断开，可手动重连”；
+// 但后台仍无限退避重连，后端恢复后自愈（原先满 3 次即彻底放弃）。
+const GIVE_UP_AFTER_ATTEMPTS = 5;
 
 class AgentWebSocket {
   private ws: WebSocket | null = null;
@@ -110,8 +115,10 @@ class AgentWebSocket {
           rejectOnce(new Error("Stale WebSocket connection"));
           return;
         }
+        // 断线重连成功（reconnectAttempts>0）时带出 reconnected=true，供上层做非破坏性 resync；
+        // 必须在重置 reconnectAttempts 之前取值，否则首连也会误触发补偿、覆盖刚乐观 set 的 user 消息。
+        this.emit("open", { reconnected: this.reconnectAttempts > 0 });
         this.reconnectAttempts = 0;
-        this.emit("open", null);
         resolveOnce();
       };
 
@@ -144,9 +151,14 @@ class AgentWebSocket {
           rejectOnce(new Error("WebSocket closed before connect"));
         }
         if (this.manuallyClosed || !this.sessionId) return;
-        // 无限重连，退避封顶 15s；唤醒/联网/聚焦事件会绕过退避立即重试
-        const delay = Math.min(1000 * 2 ** Math.min(this.reconnectAttempts, 4), 15_000);
+        // 无限次重连 + 指数退避封顶 30s：后端重启 / >7s 抖动后仍能自愈。
+        // 唤醒/联网/聚焦事件（见构造函数监听）会绕过退避立即重试。
+        const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS);
         this.reconnectAttempts += 1;
+        // 长时间断开（累计到阈值仍未连上）：emit give-up 让 UI 提供手动重连入口；后台仍继续退避重连。
+        if (this.reconnectAttempts === GIVE_UP_AFTER_ATTEMPTS) {
+          this.emit("give-up", { attempts: this.reconnectAttempts });
+        }
         this.reconnectTimer = window.setTimeout(() => {
           void this.connect(this.sessionId as string).catch(() => undefined);
         }, delay);

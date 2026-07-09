@@ -44,7 +44,7 @@ async def test_step_result_resume_skips_completed_steps(tmp_path) -> None:
     with pytest.raises(SimulatedCrash):
         await run_with_approval(crashed, "test")
 
-    stored = crashed._step_result_store.list("test-session")
+    stored = crashed._step_result_store.list("test-session", crashed._plan_name)
     assert [result.step_id for result in stored[:2]] == [1, 2]
 
     resumed = PlanExecuteRunner.resume_from_checkpoint(

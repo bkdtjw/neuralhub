@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import inspect
 import json
 from typing import Any
@@ -12,13 +10,15 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from backend.common.logging import bound_log_context, get_logger, new_trace_id
-from backend.config.settings import settings as app_settings
+
+from .feishu_signature_support import request_signature_ok
 
 logger = get_logger(component="feishu_route")
 
 router = APIRouter(prefix="/api/feishu", tags=["feishu"])
 
 _handler: Any = None
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 def set_handler(handler: Any) -> None:
@@ -26,17 +26,18 @@ def set_handler(handler: Any) -> None:
     _handler = handler
 
 
-def _verify_signature(body: bytes, timestamp: str, signature: str) -> bool:
-    token = app_settings.feishu_verification_token
-    if not token:
-        return True
-    string_to_sign = f"{timestamp}\n{token}"
-    expected = hmac.new(
-        string_to_sign.encode("utf-8"),
-        body,
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+def _log_task_exception(task: asyncio.Task[Any]) -> None:
+    # 回收 fire-and-forget 任务的强引用，并检索异常，避免未捕获异常被 asyncio 默认 handler 静默吞掉。
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.warning(
+            "feishu_handle_message_task_failed",
+            error=str(error),
+            error_type=type(error).__name__,
+        )
 
 
 def _nested_str(data: dict[str, Any], *keys: str) -> str:
@@ -82,13 +83,11 @@ async def feishu_event(request: Request) -> dict[str, Any]:
     event_type = data.get("header", {}).get("event_type", "")
     chat_id = data.get("event", {}).get("message", {}).get("chat_id", "")
 
-    # Signature verification
-    timestamp = request.headers.get("X-Lark-Signature-Timestamp", "")
-    signature = request.headers.get("X-Lark-Signature-Signature", "")
-    if timestamp and signature:
-        if not _verify_signature(body, timestamp, signature):
-            logger.warning("feishu_signature_invalid")
-            return {"error": "signature mismatch"}
+    # Signature verification (url_verification challenge above is handled first
+    # on purpose: Feishu's callback-URL challenge may arrive unsigned).
+    if not request_signature_ok(request, body):
+        logger.warning("feishu_signature_invalid")
+        return {}
 
     # Card action fallback: support both legacy root action and v2 event.action payloads.
     card_action_data = _card_action_payload_data(data)
@@ -131,7 +130,9 @@ async def feishu_event(request: Request) -> dict[str, Any]:
     with bound_log_context(trace_id=new_trace_id(), session_id=chat_id):
         logger.info("feishu_event_received", event_id=event_id, event_type=event_type)
         if _handler is not None:
-            asyncio.create_task(_handler.handle_message(data))
+            task = asyncio.create_task(_handler.handle_message(data))
+            _background_tasks.add(task)
+            task.add_done_callback(_log_task_exception)
 
     return {"status": "ok"}
 

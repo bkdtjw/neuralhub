@@ -58,10 +58,10 @@ class SubAgentSpawner:
             )
             result = await loop.run(params.task)
             return ToolResult(output=result.content.strip())
-        except asyncio.CancelledError as exc:
+        except asyncio.CancelledError:
             if loop is not None:
                 loop.abort()
-            raise AgentError("SUB_AGENT_CANCELLED", "Sub-agent execution cancelled.") from exc
+            raise
         except AgentError:
             raise
         except Exception as exc:

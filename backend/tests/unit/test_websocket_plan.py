@@ -153,8 +153,12 @@ async def test_disconnect_only_removes_matching_connection_and_subscriber() -> N
     new_ws = object()
     old_subscriber = asyncio.create_task(sleeper())
     new_subscriber = asyncio.create_task(sleeper())
-    manager._connections["session-1"] = new_ws  # type: ignore[assignment]  # noqa: SLF001
-    manager._subscriber_tasks["session-1"] = new_subscriber  # noqa: SLF001
+    # 多客户端模型：同一会话可有多个 WebSocket；断开 old_ws 不应波及仍在订阅的 new_ws。
+    manager._connections["session-1"] = {old_ws, new_ws}  # type: ignore[arg-type]  # noqa: SLF001
+    manager._subscriber_tasks["session-1"] = {  # type: ignore[dict-item]  # noqa: SLF001
+        old_ws: old_subscriber,
+        new_ws: new_subscriber,
+    }
 
     await manager.disconnect(
         "session-1",
@@ -162,8 +166,8 @@ async def test_disconnect_only_removes_matching_connection_and_subscriber() -> N
         subscriber_task=old_subscriber,
     )
 
-    assert manager._connections["session-1"] is new_ws  # noqa: SLF001
-    assert manager._subscriber_tasks["session-1"] is new_subscriber  # noqa: SLF001
+    assert manager._connections["session-1"] == {new_ws}  # noqa: SLF001
+    assert manager._subscriber_tasks["session-1"] == {new_ws: new_subscriber}  # noqa: SLF001
     assert not new_subscriber.cancelled()
     with suppress(asyncio.CancelledError):
         await old_subscriber
@@ -235,6 +239,13 @@ def test_plan_approve_and_reject_messages_call_runner(monkeypatch: pytest.Monkey
         )
         websocket.send_json({"type": "plan_approve"})
         websocket.send_json({"type": "plan_reject", "reason": "no"})
+        # plan_approve/plan_reject 无回执；补一条消息并等待其回执作为同步屏障，
+        # 确保服务端已按序处理完上面两条后再关闭连接，规避 TestClient 竞态丢消息。
+        websocket.send_json({"type": "sync"})
+        assert websocket.receive_json() == {
+            "type": "error",
+            "message": "Unsupported message type",
+        }
 
     assert runner.approved is True
     assert runner.rejected_reason == "no"

@@ -11,19 +11,19 @@ from backend.common import LLMError
 from backend.common.types import LLMRequest, LLMResponse, LLMUsage, Message, ProviderConfig, StreamChunk
 from backend.config.http_client import load_http_client_config
 
+from .anthropic_stream import fold_usage, new_usage_acc, stream_usage_response
 from .anthropic_support import (
     build_headers,
     build_payload,
-    error_message,
     parse_response,
     parse_stream_line,
     to_anthropic_messages,
 )
+from .http_error_support import error_message, is_context_overflow
 from .logging_support import (
     adapter_logger,
     incr_llm_error,
     incr_llm_success,
-    incr_llm_success_usage,
     log_llm_request_end,
     log_llm_request_error,
     log_llm_request_retry,
@@ -135,7 +135,8 @@ class AnthropicAdapter(LLMAdapter):
         model = request.model or self._default_model
         payload = build_payload(request, self._default_model, stream=True)
         tool_blocks: dict[int, dict[str, object]] = {}
-        usage_holder: dict[str, int] = {}
+        thinking_blocks: dict[int, dict[str, object]] = {}
+        usage_acc = new_usage_acc()
         started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="stream")
         try:
             for attempt in range(1, self._max_retries + 1):
@@ -145,6 +146,8 @@ class AnthropicAdapter(LLMAdapter):
                             log_llm_request_retry(logger, attempt=attempt, provider=self._provider, request_type="stream", reason="HTTP 429", status_code=429)
                             await asyncio.sleep(float(attempt))
                             continue
+                        if response.status_code >= 400:
+                            await response.aread()
                         self._raise_for_status(response)
                         event_type = ""
                         async for line in response.aiter_lines():
@@ -154,23 +157,27 @@ class AnthropicAdapter(LLMAdapter):
                             if not line.startswith("data:"):
                                 continue
                             raw = line.split(":", 1)[1].strip()
-                            if '"usage"' in raw:
-                                _capture_anthropic_usage(raw, usage_holder)
                             chunk = parse_stream_line(
                                 event_type,
                                 raw,
                                 self._provider,
                                 tool_blocks,
+                                thinking_blocks,
                             )
                             if chunk is None:
                                 continue
                             yield chunk
+                            if chunk.type == "usage":
+                                fold_usage(usage_acc, chunk)
+                                continue
                             if chunk.type == "done":
-                                await incr_llm_success_usage(_stream_usage(usage_holder))
-                                log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at)
+                                response = stream_usage_response(usage_acc)
+                                await incr_llm_success(response)
+                                log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at, response=response)
                                 return
-                        await incr_llm_success_usage(_stream_usage(usage_holder))
-                        log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at)
+                        response = stream_usage_response(usage_acc)
+                        await incr_llm_success(response)
+                        log_llm_request_end(logger, model=model, provider=self._provider, request_type="stream", started_at=started_at, response=response)
                         yield StreamChunk(type="done")
                         return
             raise LLMError("RATE_LIMIT", "Anthropic rate limited", self._provider, 429)
@@ -212,4 +219,6 @@ class AnthropicAdapter(LLMAdapter):
         if 500 <= response.status_code < 600:
             raise LLMError("SERVER_ERROR", "Anthropic server error", self._provider, response.status_code)
         if response.status_code >= 400:
-            raise LLMError("API_ERROR", error_message(response), self._provider, response.status_code)
+            message = error_message(response)
+            code = "CONTEXT_OVERFLOW" if is_context_overflow(message) else "API_ERROR"
+            raise LLMError(code, message, self._provider, response.status_code)

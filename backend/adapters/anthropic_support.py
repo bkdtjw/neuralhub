@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
-
 from backend.common import LLMError
 from backend.common.types import (
     LLMRequest,
@@ -41,7 +39,11 @@ def build_payload(request: LLMRequest, default_model: str, *, stream: bool) -> d
     if request.tool_choice is not None:
         payload["tool_choice"] = _to_anthropic_tool_choice(request.tool_choice)
     if request.thinking:
-        payload["thinking"] = {"type": "enabled", "budget_tokens": 4096}
+        budget_tokens = max(1024, min(4096, request.max_tokens - 1))
+        if payload["max_tokens"] <= budget_tokens:
+            payload["max_tokens"] = budget_tokens + 1
+        payload["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
+        payload["temperature"] = 1.0
     if stream:
         payload["stream"] = True
     return payload
@@ -160,10 +162,3 @@ def build_headers(api_key: str, extra_headers: dict[str, str]) -> dict[str, str]
         "content-type": "application/json",
         **extra_headers,
     }
-
-
-def error_message(response: httpx.Response) -> str:
-    try:
-        return response.json().get("error", {}).get("message", response.text)
-    except Exception:
-        return response.text

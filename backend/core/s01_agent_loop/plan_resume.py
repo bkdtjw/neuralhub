@@ -7,6 +7,7 @@ from backend.common.logging import get_logger
 from backend.common.types import Message
 
 from .plan_approval_wait import await_plan_approval
+from .plan_control_apply import clear_control_signal
 from .plan_detail_store import DetailedPlanWrite, save_detailed_plan
 from .plan_execute_errors import PlanExecuteError
 from .plan_execution_plan import build_todo_state_from_plan
@@ -84,6 +85,7 @@ class PlanResumeMixin:
 
     async def resume_run(self) -> Message:
         try:
+            clear_control_signal(self._session_id)
             if self._state.phase == PlanPhase.IDLE:
                 raise PlanExecuteError("PLAN_RESUME_IDLE", "Cannot resume idle plan")
             if self._state.phase in TERMINAL_PHASES:
@@ -91,11 +93,7 @@ class PlanResumeMixin:
             if self._state.phase in {PlanPhase.RECON, PlanPhase.PLANNING}:
                 if not await self._run_from_recon(_resume_goal(self._state)):
                     return self.build_exit_summary()
-            elif self._state.phase in {
-                PlanPhase.PLAN_READY,
-                PlanPhase.CONFIRMING,
-                PlanPhase.AWAITING_APPROVAL,
-            }:
+            elif self._state.phase in {PlanPhase.PLAN_READY, PlanPhase.CONFIRMING, PlanPhase.AWAITING_APPROVAL}:  # noqa: E501
                 if not await self._await_plan_approval():
                     return self.build_exit_summary()
                 await self._execute_existing_plan()

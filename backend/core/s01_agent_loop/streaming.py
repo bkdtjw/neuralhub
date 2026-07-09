@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from backend.common.types import LLMRequest, LLMResponse, ToolCall
+from backend.common.types import LLMRequest, LLMResponse, LLMUsage, ToolCall, merge_usage
 
 if TYPE_CHECKING:
     from .agent_loop import AgentLoop
@@ -26,20 +26,26 @@ def _tool_call(value: Any) -> ToolCall | None:
     )
 
 
-def _metadata(reasoning: str) -> dict[str, Any]:
-    if not reasoning:
+def _metadata(reasoning: str, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    if not reasoning and not thinking_blocks:
         return {}
-    return {
-        "reasoning_content": reasoning,
-        "thinking": reasoning,
-        "thinking_blocks": [{"type": "thinking", "thinking": reasoning}],
-    }
+    blocks = thinking_blocks or ([{"type": "thinking", "thinking": reasoning}] if reasoning else [])
+    text = reasoning or "".join(str(block.get("thinking", "")) for block in thinking_blocks)
+    metadata: dict[str, Any] = {}
+    if text:
+        metadata["reasoning_content"] = text
+        metadata["thinking"] = text
+    if blocks:
+        metadata["thinking_blocks"] = blocks
+    return metadata
 
 
 async def complete_with_stream(loop: AgentLoop, request: LLMRequest) -> LLMResponse:
     content_parts: list[str] = []
     reasoning_parts: list[str] = []
+    thinking_blocks: list[dict[str, Any]] = []
     tool_calls: list[ToolCall] = []
+    usage_acc = LLMUsage().model_dump()
     saw_chunk = False
 
     async for chunk in loop._adapter.stream(request):
@@ -50,6 +56,9 @@ async def complete_with_stream(loop: AgentLoop, request: LLMRequest) -> LLMRespo
                 content_parts.append(text)
                 loop._emit("text_delta", text)
         elif chunk.type == "reasoning":
+            if isinstance(chunk.data, dict):
+                thinking_blocks.append(chunk.data)
+                continue
             text = str(chunk.data or "")
             if text:
                 reasoning_parts.append(text)
@@ -58,6 +67,8 @@ async def complete_with_stream(loop: AgentLoop, request: LLMRequest) -> LLMRespo
             call = _tool_call(chunk.data)
             if call is not None:
                 tool_calls.append(call)
+        elif chunk.type == "usage":
+            merge_usage(usage_acc, chunk.data)
 
     if not saw_chunk:
         return await loop._adapter.complete(request)
@@ -66,7 +77,8 @@ async def complete_with_stream(loop: AgentLoop, request: LLMRequest) -> LLMRespo
     return LLMResponse(
         content="".join(content_parts),
         tool_calls=tool_calls,
-        provider_metadata=_metadata(reasoning),
+        usage=LLMUsage(**usage_acc),
+        provider_metadata=_metadata(reasoning, thinking_blocks),
     )
 
 

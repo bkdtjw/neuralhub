@@ -72,7 +72,14 @@ async def execute_sub_agent_task(
                     payload.worker_id,
                 )
                 return
-            await handler(payload, context.queue)
+            # D2：知识入库纳入心跳保活——执行期持续续约 lease，避免超长批次被 recover 误判重入队。
+            # 超时上限取 payload.timeout_seconds（本地批量 3600s），非 _timeout_seconds（kb 恒 120s 会误杀）。
+            await helpers._run_with_heartbeat(
+                context,
+                payload,
+                lambda: handler(payload, context.queue),
+                payload.timeout_seconds,
+            )
             return
         await execute_agent_payload(payload, context.queue, context.runtime)
     except AgentError:

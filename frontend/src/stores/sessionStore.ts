@@ -4,9 +4,11 @@ import { supportsThinking } from "@/lib/model-capabilities";
 import { deriveSessionTitle, mergeSessionMeta, mergeSessionsMeta, removeSessionMeta, saveSessionMeta, summarizeSessionTitle } from "@/lib/session-meta";
 import { mapFileDiffs } from "@/lib/tool-diffs";
 import { agentWs } from "@/lib/websocket";
+import { dropPendingApproval, mergePendingApprovals } from "@/lib/ws-approvals";
 import { useAgentStore } from "@/stores/agentStore";
 import { useKnowledgeStore } from "@/stores/knowledgeStore";
 import type { AgentStatus, ChatRunOptions, Message, Session, ToolCall, ToolResult } from "@/types";
+export type ConnectionState = "connected" | "reconnecting" | "disconnected";
 interface SessionState {
   sessions: Session[];
   currentSessionId: string | null;
@@ -14,6 +16,9 @@ interface SessionState {
   status: AgentStatus;
   streamingText: string;
   streamingReasoning: string;
+  pendingApprovals: ToolCall[];
+  lastError: string;
+  connectionState: ConnectionState;
   loadSessions: () => Promise<void>;
   createSession: (model: string, providerId?: string, title?: string) => Promise<string>;
   startDraftSession: () => void;
@@ -24,9 +29,16 @@ interface SessionState {
   appendStreamText: (text: string) => void;
   appendStreamReasoning: (text: string) => void;
   setStatus: (status: AgentStatus) => void;
+  setLastError: (message: string) => void;
+  setConnectionState: (state: ConnectionState) => void;
+  resync: (sessionId: string) => Promise<void>;
   clearStreamingText: () => void;
   clearStreamingReasoning: () => void;
   abortRun: () => void;
+  addPendingApprovals: (calls: ToolCall[]) => void;
+  removePendingApproval: (toolCallId: string) => void;
+  clearPendingApprovals: () => void;
+  respondToApproval: (toolCallId: string, approved: boolean) => void;
   updateSessionTitle: (id: string, title: string) => void;
 }
 const nextId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -35,6 +47,11 @@ const asRecord = (value: unknown): Record<string, unknown> => (typeof value === 
 const statuses = ["idle", "thinking", "compacting", "tool_calling", "waiting_approval", "done", "error"];
 const messageKinds = ["user_request", "summary", "runtime_guard", "runtime_context", "skill_context", "memory_context"];
 const asStatus = (value: unknown): AgentStatus => (typeof value === "string" && statuses.includes(value) ? (value as AgentStatus) : "idle");
+// WS 错误归一化：后端 error 事件带 message 字符串；lib/websocket.ts 的 socket.onerror 会 emit 原生 Event（无 message），避免把 undefined 当错误文本。
+export const errorText = (payload: unknown): string => {
+  const message = (payload as { message?: unknown } | null)?.message;
+  return typeof message === "string" && message ? message : "连接错误";
+};
 const patchSession = (sessions: Session[], id: string, patch: Partial<Pick<Session, "title" | "workspace">>): Session[] =>
   sessions.map((session) => (session.id === id ? { ...session, ...patch } : session));
 const mapToolCall = (value: unknown): ToolCall => {
@@ -67,11 +84,6 @@ const mapMessage = (value: unknown): Message => {
     timestamp: String(item.timestamp ?? new Date().toISOString()),
   };
 };
-const appendErrorMessage = (messages: Message[], content: string): Message[] => {
-  const last = messages[messages.length - 1];
-  if (last?.role === "assistant" && last.content === content) return messages;
-  return [...messages, { id: nextId(), role: "assistant", content, timestamp: new Date().toISOString() }];
-};
 const validateWorkspaceForBrowser = async (workspace: string | null): Promise<string> => {
   const path = workspace?.trim() ?? "";
   if (!path || window.electronAPI) return path;
@@ -87,6 +99,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   status: "idle",
   streamingText: "",
   streamingReasoning: "",
+  pendingApprovals: [],
+  lastError: "",
+  connectionState: "connected",
   loadSessions: async () => {
     try {
       const sessions = mergeSessionsMeta(await api.listSessions());
@@ -109,13 +124,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       messages: [],
       streamingText: "",
       streamingReasoning: "",
+      pendingApprovals: [],
       status: "idle",
+      lastError: "",
     }));
     return nextSession.id;
   },
-  startDraftSession: () => set({ currentSessionId: null, messages: [], streamingText: "", streamingReasoning: "", status: "idle" }),
+  startDraftSession: () => set({ currentSessionId: null, messages: [], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "idle", lastError: "" }),
   selectSession: (id: string) => {
-    set({ currentSessionId: id, messages: [], streamingText: "", streamingReasoning: "", status: "idle" });
+    set({ currentSessionId: id, messages: [], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "idle", lastError: "" });
     void (async () => {
       try {
         const detail = asRecord(await api.getSession(id));
@@ -152,7 +169,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         messages: wasCurrent ? [] : state.messages,
         streamingText: wasCurrent ? "" : state.streamingText,
         streamingReasoning: wasCurrent ? "" : state.streamingReasoning,
+        pendingApprovals: wasCurrent ? [] : state.pendingApprovals,
         status: wasCurrent ? "idle" : state.status,
+        lastError: wasCurrent ? "" : state.lastError,
       };
     });
   },
@@ -181,7 +200,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       content,
       timestamp: new Date().toISOString(),
     };
-    set((state) => ({ messages: [...state.messages, userMsg], streamingText: "", streamingReasoning: "", status: "thinking" }));
+    set((state) => ({ messages: [...state.messages, userMsg], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "thinking", lastError: "" }));
     const session = get().sessions.find((item) => item.id === sessionId);
     if (!session?.title.trim()) get().updateSessionTitle(sessionId, summarizeSessionTitle(content));
     if (workspace && workspace !== session?.workspace) {
@@ -211,13 +230,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     } catch (error) {
       console.error("send failed:", error);
-      set((state) => ({ messages: appendErrorMessage(state.messages, sendFailureMessage), status: "error" }));
+      // 融合 F3：发送失败统一经 lastError 呈现（MessageList 的“运行出错”横幅消费），沿用 HEAD 更明确的文案（消息未进入后端）。
+      set({ status: "error", lastError: sendFailureMessage });
     }
   },
   addMessage: (msg: Message) => set((state) => ({ messages: [...state.messages, msg] })),
   appendStreamText: (text: string) => set((state) => ({ streamingText: `${state.streamingText}${text}` })),
   appendStreamReasoning: (text: string) => set((state) => ({ streamingReasoning: `${state.streamingReasoning}${text}` })),
   setStatus: (status: AgentStatus) => set({ status }),
+  setLastError: (message: string) => set({ lastError: message }),
+  setConnectionState: (connectionState: ConnectionState) => set({ connectionState }),
+  resync: async (sessionId: string) => {
+    // 非破坏性补偿：断线重连后重新拉取会话，成功且非空才替换 messages/status；
+    // 失败或空结果均保留旧 messages（绝不清空）；会话已切换则丢弃结果，避免写脏当前会话。
+    if (get().currentSessionId !== sessionId) return;
+    try {
+      const detail = asRecord(await api.getSession(sessionId));
+      if (get().currentSessionId !== sessionId) return;
+      const nextMessages = Array.isArray(detail.messages) ? detail.messages.map(mapMessage) : [];
+      set((state) => ({
+        messages: nextMessages.length ? nextMessages : state.messages,
+        status: asStatus(detail.status),
+      }));
+    } catch (error) {
+      console.error("resync failed", error);
+    }
+  },
   clearStreamingText: () => set({ streamingText: "" }),
   clearStreamingReasoning: () => set({ streamingReasoning: "" }),
   abortRun: () => {
@@ -226,6 +264,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const content = streamingText || (["thinking", "compacting", "tool_calling", "waiting_approval"].includes(status) ? (status === "tool_calling" ? "已停止，工具调用已中断。" : "已停止，当前任务已中断。") : "");
     if (!content && !streamingReasoning) { set({ status: "idle" }); return; }
     set((state) => ({ messages: [...state.messages, { id: nextId(), role: "assistant", content, reasoningContent: streamingReasoning || undefined, timestamp: new Date().toISOString() }], status: "done", streamingText: "", streamingReasoning: "" }));
+  },
+  addPendingApprovals: (calls: ToolCall[]) => set((state) => ({ pendingApprovals: mergePendingApprovals(state.pendingApprovals, calls) })),
+  removePendingApproval: (toolCallId: string) => set((state) => ({ pendingApprovals: dropPendingApproval(state.pendingApprovals, toolCallId) })),
+  clearPendingApprovals: () => set((state) => (state.pendingApprovals.length ? { pendingApprovals: [] } : state)),
+  respondToApproval: (toolCallId: string, approved: boolean) => {
+    if (!agentWs.send({ type: approved ? "tool_approve" : "tool_reject", tool_call_id: toolCallId })) {
+      console.warn("approval decision skipped: websocket not connected");
+      return;
+    }
+    set((state) => ({ pendingApprovals: dropPendingApproval(state.pendingApprovals, toolCallId) }));
   },
   updateSessionTitle: (id: string, title: string) => {
     const nextTitle = summarizeSessionTitle(title);

@@ -8,9 +8,12 @@ from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
 from backend.common.types import LLMRequest, Message
 
+from .boundary import align_recent_boundary
 from .compressor import SUMMARY_SYSTEM_PROMPT
 from .level2_compact import RECENT_KEEP_COUNT
 from .summary_helpers import build_summary_message, is_summary_message
+
+SUMMARY_MARKER = "[对话历史摘要]"
 
 
 class Level3SummaryError(AgentError):
@@ -42,8 +45,7 @@ async def summarize_archive(request: SummaryArchiveRequest) -> list[Message]:
         ]
         if len(non_system) <= RECENT_KEEP_COUNT:
             return list(request.messages)
-        old = non_system[:-RECENT_KEEP_COUNT]
-        recent = non_system[-RECENT_KEEP_COUNT:]
+        old, recent = align_recent_boundary(non_system, RECENT_KEEP_COUNT)
         archive_path = write_session_archive(old, request.sessions_dir, request.session_id)
         try:
             summary = await request_summary(request.adapter, request.model, old, archive_path)
@@ -114,15 +116,24 @@ def fallback_summary(messages: list[Message], archive_path: str) -> str:
 
 
 def _summary_prompt(messages: list[Message], archive_path: str = "") -> str:
+    prior_summaries: list[str] = []
+    history: list[str] = []
+    for message in messages:
+        text = message.content or _tool_text(message)
+        if message.content and message.content.startswith(SUMMARY_MARKER):
+            prior_summaries.append(text)
+            continue
+        history.append(f"{len(history) + 1}. {message.role}: {_clip(text, 1200)}")
     lines = [
         "请压缩以下历史。必须遵守 P1-P6 保留优先级。",
         "必须按 system 中的 structured_summary XML 格式输出。",
         f"无损备份路径：{archive_path or '无'}",
-        "[历史开始]",
     ]
-    for index, message in enumerate(messages, start=1):
-        text = message.content or _tool_text(message)
-        lines.append(f"{index}. {message.role}: {_clip(text, 1200)}")
+    if prior_summaries:
+        lines.append("[已有摘要]")
+        lines.extend(prior_summaries)
+    lines.append("[历史开始]")
+    lines.extend(history)
     lines.append("[历史结束]")
     return "\n".join(lines)
 

@@ -34,10 +34,12 @@ def build_step_result(
     return result
 
 
-async def persist_step_result(store: StepResultStore, session_id: str, result: StepResult) -> Path:
-    path = store.write(session_id, result)
+async def persist_step_result(
+    store: StepResultStore, session_id: str, plan_name: str, result: StepResult
+) -> Path:
+    path = store.write(session_id, plan_name, result)
     result.artifact_path = path.as_posix()
-    final_path = store.write(session_id, result)
+    final_path = store.write(session_id, plan_name, result)
     await incr("plan_step_results_persisted")
     return final_path
 
@@ -46,6 +48,7 @@ async def record_step_result(
     results: list[StepResult],
     store: StepResultStore,
     session_id: str,
+    plan_name: str,
     todo_step: TodoStep,
     plan_step: PlanStep,
     loop: AgentLoop | None,
@@ -53,7 +56,7 @@ async def record_step_result(
     steps_dir: Path,
 ) -> None:
     result = build_step_result(todo_step, plan_step, loop, request_id, steps_dir)
-    await persist_step_result(store, session_id, result)
+    await persist_step_result(store, session_id, plan_name, result)
     upsert_step_result(results, result)
 
 

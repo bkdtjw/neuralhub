@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useNavigationType, useParams } from "react-ro
 import InputBar from "@/components/chat/InputBar";
 import MessageList from "@/components/chat/MessageList";
 import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
+import { agentWs } from "@/lib/websocket";
 import { useSession } from "@/hooks/useSession";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAgentStore } from "@/stores/agentStore";
@@ -30,6 +31,7 @@ export default function Session() {
   const sessions = useSessionStore((state) => state.sessions);
   const currentSessionId = useSessionStore((state) => state.currentSessionId);
   const abortRun = useSessionStore((state) => state.abortRun);
+  const connectionState = useSessionStore((state) => state.connectionState);
   const currentModel = useAgentStore((state) => state.currentModel);
   const currentProviderId = useAgentStore((state) => state.currentProviderId);
   const providers = useAgentStore((state) => state.providers);
@@ -83,6 +85,10 @@ export default function Session() {
         </div>
       </header>
 
+      {sessionId && connectionState !== "connected" ? (
+        <ConnectionBanner state={connectionState} onReconnect={() => void agentWs.connect(sessionId)} />
+      ) : null}
+
       {hasMessages ? (
         <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
       ) : (
@@ -118,5 +124,24 @@ function EmptySessionState({ enabled, onPick }: { enabled: boolean; onPick: (pro
         </div>
       </div>
     </main>
+  );
+}
+
+function ConnectionBanner({ state, onReconnect }: { state: "reconnecting" | "disconnected"; onReconnect: () => void }) {
+  const reconnecting = state === "reconnecting";
+  return (
+    <div className="flex shrink-0 items-center justify-center gap-2.5 border-b border-[var(--as-border)] bg-[var(--as-surface)] px-5 py-1.5 text-[12px]">
+      <span className={`h-1.5 w-1.5 rounded-full bg-[var(--as-danger)] ${reconnecting ? "animate-pulse" : ""}`} />
+      <span className="text-[var(--as-text-secondary)]">{reconnecting ? "连接已断开，正在重连…" : "连接已断开"}</span>
+      {reconnecting ? null : (
+        <button
+          type="button"
+          onClick={onReconnect}
+          className="rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-2 py-0.5 text-[11px] text-[var(--as-text)] transition hover:border-[var(--as-accent)] hover:text-[var(--as-accent-soft)]"
+        >
+          点击重连
+        </button>
+      )}
+    </div>
   );
 }

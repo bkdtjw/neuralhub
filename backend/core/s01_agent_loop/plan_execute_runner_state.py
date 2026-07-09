@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .plan_control_apply import clear_control_signal
 from .plan_models import ExecutionPlan, PlanPhase, PlanState, TodoState
 from .plan_state_machine import transition
 
@@ -88,6 +89,7 @@ class PlanExecuteRunnerStateMixin:
         self._cancel_requested = False
         self._plan_path = None
         self._todo_path = None
+        clear_control_signal(self._session_id)
 
     def _set_phase(self, phase: PlanPhase) -> None:
         self._state.phase = transition(self._state.phase, phase)

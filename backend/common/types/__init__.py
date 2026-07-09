@@ -11,6 +11,7 @@ from .message import (
     ToolCall,
     ToolResult,
     generate_id,
+    merge_usage,
 )
 from .security import SecurityPolicy, SignedToolCall
 from .session import Session, SessionConfig, SessionStatus
@@ -53,6 +54,7 @@ __all__ = [
     "ToolResult",
     "Message",
     "StreamChunk",
+    "merge_usage",
     "SecurityPolicy",
     "SignedToolCall",
     "SessionStatus",

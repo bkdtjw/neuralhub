@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -14,6 +15,7 @@ from backend.core.s01_agent_loop.plan_state_machine import TERMINAL_PHASES
 from backend.storage import SessionStore
 
 from .websocket_knowledge import prepare_knowledge_run
+from .websocket_loop_cache import LoopCache
 from .websocket_plan import create_plan_runner, run_plan_loop, run_plan_resume_loop
 from .websocket_plan_resume import create_plan_resume_runner
 from .websocket_pubsub import forward_session_messages, publish_session_message
@@ -34,12 +36,25 @@ logger = get_logger(component="websocket_route")
 
 class ConnectionManager:
     def __init__(self) -> None:
+        # 多客户端模型（feat/event-hooks）：一个会话可被多个 WebSocket 同时订阅。
         self._connections: dict[str, set[WebSocket]] = {}
-        self._loops: dict[str, AgentLoop] = {}
         self._plan_runners: dict[str, PlanExecuteRunner] = {}
-        self._loop_settings: dict[str, LoopSettings] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._subscriber_tasks: dict[str, dict[WebSocket, asyncio.Task[Any]]] = {}
+        # LoopCache 组合进来做 LRU 封顶，兜底防止断连后 loop 常驻内存 OOM。
+        self._loop_cache = LoopCache(self._is_busy)
+
+    @property
+    def _loops(self) -> OrderedDict[str, AgentLoop]:
+        return self._loop_cache.loops
+
+    @property
+    def _loop_settings(self) -> dict[str, LoopSettings]:
+        return self._loop_cache.settings
+
+    def _is_busy(self, session_id: str) -> bool:
+        task = self._tasks.get(session_id)
+        return task is not None and not task.done()
 
     async def connect(self, session_id: str, ws: WebSocket) -> None:
         try:
@@ -55,21 +70,30 @@ class ConnectionManager:
         subscriber_task: asyncio.Task[Any] | None = None,
         store: SessionStore | None = None,
     ) -> None:
-        try:
-            loop = self._loops.get(session_id)
-            if loop is not None:
+        # 先做纯同步、不可失败的清理，确保订阅任务与连接引用一定被释放（多客户端：按 ws 精确摘除）。
+        self._remove_subscriber_task(session_id, websocket, subscriber_task)
+        if websocket is None:
+            self._connections.pop(session_id, None)
+        else:
+            sockets = self._connections.get(session_id)
+            if sockets is not None:
+                sockets.discard(websocket)
+                if not sockets:
+                    self._connections.pop(session_id, None)
+        # 消息落盘可能失败，但不应阻断上面的清理；失败仅记录日志，不再抛异常。
+        loop = self._loops.get(session_id)
+        if loop is not None:
+            try:
                 await self._sync_messages(session_id, loop, store)
-            self._remove_subscriber_task(session_id, websocket, subscriber_task)
-            if websocket is None:
-                self._connections.pop(session_id, None)
-            else:
-                sockets = self._connections.get(session_id)
-                if sockets is not None:
-                    sockets.discard(websocket)
-                    if not sockets:
-                        self._connections.pop(session_id, None)
-        except Exception as exc:  # noqa: BLE001
-            raise AgentError("WS_DISCONNECT_ERROR", str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ws_disconnect_sync_messages_failed", session_id=session_id, error=str(exc)
+                )
+            # 无在跑任务且已无其他客户端连接时回收 loop（落库已在上方完成），避免断连后 loop 常驻内存。
+            # 有任务在跑或仍有客户端订阅则保留：交由其 done_callback / 后续断连回收。
+            if self._connections.get(session_id) is None and not self._is_busy(session_id):
+                loop.abort()
+                self._loop_cache.pop(session_id)
 
     async def clear_session(self, session_id: str, store: SessionStore | None = None) -> None:
         try:
@@ -98,15 +122,44 @@ class ConnectionManager:
         try:
             if store is None:
                 return
+            history = loop.message_history
+            if history.has_checkpoint_fn and not history.checkpoint_failed:
+                return
             await store.save_messages(session_id, loop.messages)
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_SYNC_MESSAGES_ERROR", str(exc)) from exc
 
     def get_loop(self, session_id: str) -> AgentLoop | None:
-        return self._loops.get(session_id)
+        return self._loop_cache.get(session_id)
 
     def get_loop_settings(self, session_id: str) -> LoopSettings | None:
-        return self._loop_settings.get(session_id)
+        return self._loop_cache.get_settings(session_id)
+
+    async def store_loop(
+        self,
+        session_id: str,
+        loop: AgentLoop,
+        settings: LoopSettings,
+        store: SessionStore | None = None,
+    ) -> None:
+        # 存入 loop 并封顶缓存；被 LRU 淘汰的空闲 loop 先尽力落库再 abort，防止内存无界增长。
+        for victim_id, victim in self._loop_cache.store(session_id, loop, settings):
+            try:
+                await self._sync_messages(victim_id, victim, store)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ws_loop_evict_sync_failed", session_id=victim_id, error=str(exc))
+            victim.abort()
+
+    def _evict_if_idle(self, session_id: str) -> None:
+        # 供 done_callback 的同步上下文调用：连接已断且无在跑任务时回收 loop。
+        # 消息已由 run_loop 的 finally 落库，这里只 abort + pop，不在同步回调里 await。
+        if self._connections.get(session_id) is not None:
+            return
+        if self._is_busy(session_id):
+            return
+        loop = self._loop_cache.pop(session_id)
+        if loop is not None:
+            loop.abort()
 
     def set_subscriber_task(
         self, session_id: str, websocket: WebSocket, task: asyncio.Task[Any]
@@ -186,16 +239,14 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
             data = await websocket.receive_json()
             msg_type = data.get("type")
             if msg_type == "run":
-                loop = manager.get_loop(session_id)
+                # 忙判定以任务存活为准：旧的状态集合会漏掉 compacting/waiting_approval，
+                # 从而在这些阶段放行第二个 run，造成同一 loop 并发。task 未结束即拒绝，
+                # 拒绝并发后下方 manager._tasks[session_id] = task 也不会再覆盖存活句柄。
                 task = manager._tasks.get(session_id)
-                if (
-                    loop
-                    and loop.status in {"thinking", "tool_calling"}
-                    and task
-                    and not task.done()
-                ):
+                if task and not task.done():
                     await websocket.send_json({"type": "error", "message": "Agent is busy"})
                     continue
+                loop = manager.get_loop(session_id)
                 settings = await resolve_loop_settings(parse_loop_settings(data), provider_manager)
                 state = websocket.app.state
                 user_message = str(data.get("message", "")).strip()
@@ -304,8 +355,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                             event_sender=send_message,
                         )
                     )
-                    manager._loops[session_id] = loop
-                    manager._loop_settings[session_id] = settings
+                    await manager.store_loop(session_id, loop, settings, store)
                 bridge = loop.bridge
                 if bridge is not None and bridge.needs_sync():
                     await bridge.sync_if_needed()
@@ -321,7 +371,12 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                         )
                     )
                 )
-                task.add_done_callback(lambda _: manager._tasks.pop(session_id, None))
+                task.add_done_callback(
+                    lambda _: (
+                        manager._tasks.pop(session_id, None),
+                        manager._evict_if_idle(session_id),
+                    )
+                )
                 manager._tasks[session_id] = task
             elif msg_type == "plan_approve":
                 runner = manager._plan_runners.get(session_id)
@@ -373,13 +428,17 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                     lambda _: (
                         manager._plan_runners.pop(session_id, None),
                         manager._tasks.pop(session_id, None),
+                        manager._evict_if_idle(session_id),
                     )
                 )
                 manager._tasks[session_id] = task
             elif msg_type == "plan_discard":
-                state = _latest_incomplete_checkpoint(PlanCheckpointStore(), session_id, session_id)
+                checkpoint_store = PlanCheckpointStore()
+                state = await asyncio.to_thread(
+                    _latest_incomplete_checkpoint, checkpoint_store, session_id, session_id
+                )
                 if state is not None:
-                    PlanCheckpointStore().delete(state.session_id, state.plan_name)
+                    checkpoint_store.delete(state.session_id, state.plan_name)
                 await manager.broadcast(session_id, {"type": "status", "status": "idle"})
             elif msg_type in {"tool_approve", "tool_reject"}:
                 tool_call_id = str(data.get("tool_call_id", "")).strip()
@@ -408,18 +467,15 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
             else:
                 await websocket.send_json({"type": "error", "message": "Unsupported message type"})
     except WebSocketDisconnect:
+        # 保留断连日志（可观测性）；清理统一交给 finally，避免在此重复 disconnect。
         logger.info("ws_disconnected", session_id=session_id)
-        await manager.disconnect(
-            session_id,
-            websocket=websocket,
-            subscriber_task=subscriber_task,
-            store=store,
-        )
     except Exception as exc:  # noqa: BLE001
+        # 尽力通知客户端；发送失败也无妨，清理仍由 finally 兜底，不再 return 短路。
         try:
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
-            return
+            pass
+    finally:
         await manager.disconnect(
             session_id,
             websocket=websocket,
@@ -429,7 +485,16 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
 
 
 async def _send_resume_available(websocket: WebSocket, session_id: str) -> None:
-    state = _latest_incomplete_checkpoint(PlanCheckpointStore(), session_id, session_id)
+    store = PlanCheckpointStore()
+    # 顺带低频清理超龄非终态 checkpoint（放线程避免阻塞事件循环）；GC 尽力而为，
+    # 失败也绝不能拖垮连接与恢复提示，故吞掉异常仅记日志。
+    try:
+        await asyncio.to_thread(store.cleanup_stale)
+    except Exception:  # noqa: BLE001
+        logger.warning("plan_checkpoint_cleanup_stale_failed", session_id=session_id)
+    state = await asyncio.to_thread(
+        _latest_incomplete_checkpoint, store, session_id, session_id
+    )
     if state is None:
         return
     await websocket.send_json(

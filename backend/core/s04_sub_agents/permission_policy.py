@@ -1,61 +1,12 @@
 from __future__ import annotations
 
-import re
-
 from backend.common.errors import AgentError
 from backend.common.types import ToolResult
 from backend.core.s02_tools import ToolRegistry
 
+from .readonly_guard import is_readonly_blocked
 from .runtime_models import IsolatedRegistryConfig
 
-READONLY_BLOCKED_PATTERNS: list[str] = [
-    r"\brm(\s|$)",
-    r"\bmv\s",
-    r"\bcp\s",
-    r"\bchmod\s",
-    r"\bchown\s",
-    r"\bmkdir\s",
-    r"\brmdir(\s|$)",
-    r"\bsed\s+-i",
-    r"\btee(\s|$)",
-    r"(^|[^|])>(?![>&])",
-    r">>",
-    r"\bpatch(\s|$)",
-    r"\bcopy(\s|$)",
-    r"\bmove(\s|$)",
-    r"\bren(\s|$)",
-    r"\bdel(\s|$)",
-    r"\berase(\s|$)",
-    r"\bmd(\s|$)",
-    r"\brd(\s|$)",
-    r"\bformat(\s|$)",
-    r"\b(remove-item|set-content|add-content|new-item|move-item|copy-item|rename-item|clear-content|out-file)\b",
-    r"\bgit\s+(commit|push|merge|rebase|checkout|reset|clean)\b",
-    r"\bnpm\s+(install|uninstall|publish)\b",
-    r"\bpip\s+(install|uninstall)\b",
-]
-READONLY_BLOCKED_PREFIXES = {
-    "bash",
-    "cmd",
-    "cmd.exe",
-    "cscript",
-    "node",
-    "node.exe",
-    "perl",
-    "php",
-    "powershell",
-    "powershell.exe",
-    "py",
-    "py.exe",
-    "python",
-    "python3",
-    "python.exe",
-    "pwsh",
-    "pwsh.exe",
-    "ruby",
-    "sh",
-    "wscript",
-}
 RECURSIVE_TOOL_NAMES = {"dispatch_agent", "orchestrate_agents"}
 DEFAULT_READONLY_TOOLS = {"Read", "Bash"}
 DEFAULT_READWRITE_TOOLS = {"Read", "Write", "Bash"}
@@ -64,22 +15,6 @@ DEFAULT_READWRITE_TOOLS = {"Read", "Write", "Bash"}
 class PermissionPolicyError(AgentError):
     def __init__(self, message: str) -> None:
         super().__init__(code="SUB_AGENT_PERMISSION_ERROR", message=message)
-
-
-def _extract_command_prefix(command: str) -> str:
-    match = re.match(r"^\s*([a-z0-9_.-]+)", command.strip().lower())
-    return match.group(1) if match else ""
-
-
-def is_readonly_blocked(command: str) -> bool:
-    """Return whether a readonly Bash command attempts a write operation."""
-
-    normalized = command.strip().lower()
-    if not normalized:
-        return True
-    if any(re.search(pattern, normalized) for pattern in READONLY_BLOCKED_PATTERNS):
-        return True
-    return _extract_command_prefix(normalized) in READONLY_BLOCKED_PREFIXES
 
 
 def _resolve_allowed_tools(config: IsolatedRegistryConfig) -> set[str]:
@@ -138,5 +73,4 @@ __all__ = [
     "PermissionPolicyError",
     "build_isolated_registry",
     "is_readonly_blocked",
-    "READONLY_BLOCKED_PATTERNS",
 ]

@@ -23,16 +23,16 @@ def test_step_result_store_roundtrip(tmp_path) -> None:
         result_summary="failed",
     )
 
-    first_path = store.write("session-1", first)
-    store.write("session-1", second)
+    first_path = store.write("session-1", "plan-a", first)
+    store.write("session-1", "plan-a", second)
 
     assert first_path.name == "step_2.json"
-    assert store.read("session-1", 2) == first
-    assert [result.step_id for result in store.list("session-1")] == [1, 2]
+    assert store.read("session-1", "plan-a", 2) == first
+    assert [result.step_id for result in store.list("session-1", "plan-a")] == [1, 2]
 
 
 def test_step_result_store_rejects_path_injection(tmp_path) -> None:
     store = StepResultStore(tmp_path / "steps")
 
     with pytest.raises(ValueError):
-        store.read("../bad", 1)
+        store.read("../bad", "plan-a", 1)

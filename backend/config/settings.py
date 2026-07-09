@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
     database_pool_recycle: int = 1800
+    # 启动时是否由 init_db 执行 create_all 自动建表。默认 True 保持开发/现状行为不变；
+    # 生产环境应设为 False，让 alembic 迁移成为 schema 唯一权威，避免与 create_all 双轨漏迁移。
+    auto_create_tables: bool = True
     metrics_ttl_days: int = 400  # token 用量按月/年回看，日桶需长保留
     metrics_timezone: str = "Asia/Shanghai"  # 指标分桶时区，空串则用系统本地时区
     log_search_backend: str = "file"
@@ -63,6 +66,9 @@ class Settings(BaseSettings):
     zhipu_embedding_model: str = "embedding-3"
     zhipu_embedding_dimensions: int = 2048
     knowledge_upload_dir: str = "data/knowledge_uploads"
+    # embedding 余弦相似度阈值（score = 1 - cosine_distance）；低于此值的检索段视为无关不注入，
+    # 避免无关提问也塞 top_k 段诱导幻觉。上线后按实际 query 调，先取 0.35~0.4。
+    knowledge_score_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     youtube_api_key: str = ""
     youtube_proxy_url: str = ""
     exa_api_key: str = ""
@@ -91,6 +97,8 @@ class Settings(BaseSettings):
     zhetaoke_tb_pid: str = ""
     compact_threshold_l2: float = Field(default=0.5, ge=0.0, le=1.0)
     compact_threshold_l3: float = Field(default=0.7, ge=0.0, le=1.0)
+    # 上下文压缩的 token 上限，保守默认；可按模型上下文窗口调大（如 200000 / 1000000）。
+    max_context_tokens: int = 128000
 
     @field_validator("morning_report_user_ids", mode="before")
     @classmethod

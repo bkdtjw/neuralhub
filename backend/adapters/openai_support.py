@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-import httpx
-
 from backend.common.types import (
     LLMRequest,
     LLMResponse,
@@ -17,6 +15,7 @@ from backend.common.types import (
 
 from .message_zones import request_zone_messages
 from .openai_thinking import apply_thinking_payload
+from .openai_usage import usage_stream_chunk
 
 
 def build_payload(
@@ -27,6 +26,7 @@ def build_payload(
     extra_body: dict[str, Any] | None = None,
     enable_prompt_cache: bool = False,
     prompt_cache_retention: Literal["in_memory", "24h"] | None = None,
+    include_usage: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": request.model or default_model,
@@ -40,6 +40,10 @@ def build_payload(
         payload["tool_choice"] = "required" if request.tool_choice == "any" else request.tool_choice
     if stream:
         payload["stream"] = True
+        # Opt-in only: many third-party gateways 400 on stream_options, so the
+        # adapter enables this per-provider rather than unconditionally.
+        if include_usage:
+            payload["stream_options"] = {"include_usage": True}
     if extra_body:
         payload.update(extra_body)
     apply_thinking_payload(payload, request)
@@ -157,6 +161,9 @@ def parse_stream_line(raw: str, tool_chunks: dict[int, dict[str, str]]) -> list[
         for chunk_type, key in (("reasoning", "reasoning_content"), ("text", "content"))
         if delta.get(key)
     ]
+    usage = usage_stream_chunk(data)
+    if usage is not None:
+        chunks.append(usage)
     if choice.get("finish_reason") == "tool_calls":
         chunks.extend(flush_tool_calls(tool_chunks))
     return chunks
@@ -191,10 +198,3 @@ def parse_args(raw: Any) -> dict[str, Any]:
 def build_headers(api_key: str, extra_headers: dict[str, str]) -> dict[str, str]:
     auth_header = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     return {"content-type": "application/json", **extra_headers, **auth_header}
-
-
-def error_message(response: httpx.Response) -> str:
-    try:
-        return response.json().get("error", {}).get("message", response.text)
-    except Exception:
-        return response.text

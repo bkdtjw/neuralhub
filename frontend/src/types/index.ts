@@ -225,8 +225,10 @@ export type WsIncoming =
   | { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: "tool_result"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
   | { type: "security_reject"; toolCallId: string; output: string; isError: boolean; diffs?: FileDiff[] }
+  | { type: "tool_approval_required"; toolCalls: ToolCall[]; timeoutSeconds?: number }
   | { type: "text"; content: string }
   | { type: "reasoning"; content: string }
   | SubAgentProgress
   | { type: "done"; message: Message }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "ignored"; raw?: Record<string, unknown> };

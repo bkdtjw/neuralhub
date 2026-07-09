@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.common.logging import bound_log_context, get_log_context, get_logger, new_trace_id
+from backend.common.message_history import sanitize_message_history
 from backend.common.types import (
     AgentConfig,
     LLMRequest,
@@ -18,6 +19,10 @@ from backend.common.types import (
 )
 from backend.core.s06_context_compression.summary_helpers import is_summary_message
 from backend.core.system_prompt import build_runtime_context
+
+# patch_orphan_tool_calls 已抽到 agent_loop_orphan，此处显式再导出保持既有导入路径不变。
+from .agent_loop_orphan import patch_orphan_tool_calls as patch_orphan_tool_calls
+
 
 def _cache_key_part(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip())[:40]
@@ -56,6 +61,8 @@ def build_llm_request(
     static_skill_messages: list[Message] | None = None,
 ) -> LLMRequest:
     system_msg, summary, recent = _split_history(messages)
+    # 自愈：丢弃已污染会话里的孤儿 tool 消息，避免每轮发送都触发 LLM 400（不改内存历史本体）。
+    recent = sanitize_message_history(recent)
     system_prompt = config.system_prompt or (system_msg.content if system_msg else "")
     latest_text = _latest_user_text(recent)
     skill_messages = [
@@ -221,24 +228,3 @@ def log_tool_result(logger: Any, tool_call: ToolCall | None, result: ToolResult)
         tool_call_id=result.tool_call_id,
         is_error=result.is_error,
     )
-
-
-def build_orphan_tool_results(message: Message) -> list[ToolResult]:
-    return [
-        ToolResult(
-            tool_call_id=call.id,
-            output="[error] tool execution failed, no response captured",
-            is_error=True,
-        )
-        for call in message.tool_calls or []
-    ]
-
-
-def patch_orphan_tool_calls(messages: list[Message]) -> list[Message]:
-    if not messages:
-        return messages
-    last = messages[-1]
-    if last.role != "assistant" or not last.tool_calls:
-        return messages
-    messages.append(Message(role="tool", content="", tool_results=build_orphan_tool_results(last)))
-    return messages

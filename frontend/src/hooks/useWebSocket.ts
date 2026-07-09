@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 
 import { agentWs } from "@/lib/websocket";
+import { createConnectionHandlers } from "@/hooks/ws-connection";
 import { createReasoningTracker } from "@/hooks/ws-reasoning";
-import { useSessionStore } from "@/stores/sessionStore";
+import { errorText, useSessionStore } from "@/stores/sessionStore";
 import type { SubAgentProgress, ToolCall, ToolResult, WsIncoming } from "@/types";
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -17,6 +18,7 @@ export function useWebSocket(sessionId: string) {
   const pendingCallsFromMessage = useRef(false);
   const waitingForToolResults = useRef(false);
   const toolResultTimeout = useRef<number | null>(null);
+  const approvalPaused = useRef(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -122,6 +124,14 @@ export function useWebSocket(sessionId: string) {
 
     const onStatus = (payload: unknown) => {
       const p = payload as Extract<WsIncoming, { type: "status" }>;
+      // 审批期间后端给 300s 合法等待：暂停前端 90s 工具结果定时器；离开审批（回到 tool_calling）再按需重启。
+      if (p.status === "waiting_approval") {
+        approvalPaused.current = true;
+        clearToolResultTimeout();
+      } else if (approvalPaused.current) {
+        approvalPaused.current = false;
+        startToolResultTimeout();
+      }
       useSessionStore.getState().setStatus(p.status);
     };
 
@@ -135,6 +145,13 @@ export function useWebSocket(sessionId: string) {
       const p = payload as Extract<WsIncoming, { type: "reasoning" }>;
       reasoning.current.start();
       useSessionStore.getState().appendStreamReasoning(p.content);
+    };
+
+    const onToolApprovalRequired = (payload: unknown) => {
+      const p = payload as Extract<WsIncoming, { type: "tool_approval_required" }>;
+      approvalPaused.current = true;
+      clearToolResultTimeout();
+      useSessionStore.getState().addPendingApprovals(p.toolCalls);
     };
 
     const onMessage = (payload: unknown) => {
@@ -208,6 +225,8 @@ export function useWebSocket(sessionId: string) {
         isError: p.isError,
         ...(p.diffs?.length ? { diffs: p.diffs } : {}),
       });
+      // 兜底移除：无论用户点击、飞书审批还是后端 300s 超时，收到该工具结果即从待审批列表清掉。
+      if (p.toolCallId) useSessionStore.getState().removePendingApproval(p.toolCallId);
       finishIfToolResultsComplete();
     };
 
@@ -239,26 +258,30 @@ export function useWebSocket(sessionId: string) {
       }
       state.clearStreamingText();
       state.clearStreamingReasoning();
+      state.clearPendingApprovals();
       state.setStatus("done");
+      approvalPaused.current = false;
       reasoning.current.reset();
     };
 
     const onError = (payload: unknown) => {
-      const message = (payload as Extract<WsIncoming, { type: "error" }>).message;
       if (waitingForToolResults.current) flushPendingMessage();
+      approvalPaused.current = false;
       const state = useSessionStore.getState();
       state.clearStreamingText();
       state.clearStreamingReasoning();
-      state.addMessage({
-        id: makeId(),
-        role: "assistant",
-        content: message || "请求失败，请稍后重试。",
-        timestamp: new Date().toISOString(),
-      });
+      state.clearPendingApprovals();
+      state.setLastError(errorText(payload));
       state.setStatus("error");
-      console.error("WebSocket error:", message);
+      console.error("WebSocket error:", payload);
     };
 
+    const connection = createConnectionHandlers(sessionId);
+
+    agentWs.connect(sessionId);
+    agentWs.on("open", connection.onOpen);
+    agentWs.on("close", connection.onClose);
+    agentWs.on("give-up", connection.onGiveUp);
     agentWs.on("status", onStatus);
     agentWs.on("text", onText);
     agentWs.on("reasoning", onReasoning);
@@ -269,10 +292,14 @@ export function useWebSocket(sessionId: string) {
     agentWs.on("sub_agent_spawned", onSubAgentProgress);
     agentWs.on("sub_agent_completed", onSubAgentProgress);
     agentWs.on("sub_agent_failed", onSubAgentProgress);
+    agentWs.on("tool_approval_required", onToolApprovalRequired);
     agentWs.on("done", onDone);
     agentWs.on("error", onError);
     return () => {
       clearToolResultTimeout();
+      agentWs.off("open", connection.onOpen);
+      agentWs.off("close", connection.onClose);
+      agentWs.off("give-up", connection.onGiveUp);
       agentWs.off("status", onStatus);
       agentWs.off("text", onText);
       agentWs.off("reasoning", onReasoning);
@@ -283,6 +310,7 @@ export function useWebSocket(sessionId: string) {
       agentWs.off("sub_agent_spawned", onSubAgentProgress);
       agentWs.off("sub_agent_completed", onSubAgentProgress);
       agentWs.off("sub_agent_failed", onSubAgentProgress);
+      agentWs.off("tool_approval_required", onToolApprovalRequired);
       agentWs.off("done", onDone);
       agentWs.off("error", onError);
       pendingToolCalls.current = [];
@@ -292,6 +320,8 @@ export function useWebSocket(sessionId: string) {
       reasoning.current.reset();
       pendingCallsFromMessage.current = false;
       waitingForToolResults.current = false;
+      approvalPaused.current = false;
+      useSessionStore.getState().clearPendingApprovals();
       agentWs.close(sessionId);
     };
   }, [sessionId]);

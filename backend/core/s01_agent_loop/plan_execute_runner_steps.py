@@ -11,6 +11,7 @@ from backend.common.types import AgentConfig, Message
 from backend.core.s02_tools import ToolRegistry
 
 from .agent_loop import AgentLoop
+from .plan_control_apply import apply_control_signal
 from .plan_control_store import PlanControlStore
 from .plan_convergence import ConvergenceMonitor
 from .plan_execute_errors import PlanExecuteError
@@ -46,7 +47,7 @@ class PlanExecuteRunnerStepsMixin:
         try:
             if self._todo_state is None:
                 return
-            self._step_results = self._step_result_store.list(self._session_id)
+            self._step_results = self._step_result_store.list(self._session_id, self._plan_name)
             index = 0
             while index < len(self._todo_state.steps):
                 self._apply_control_signal()
@@ -84,14 +85,7 @@ class PlanExecuteRunnerStepsMixin:
             self._set_phase(PlanPhase.EXECUTING)
 
     def _apply_control_signal(self) -> None:
-        signal = PlanControlStore().read(self._session_id)
-        if signal.action == "stop":
-            self.cancel()
-        elif signal.action == "pause":
-            self._control.request_pause()
-        elif signal.action == "resume":
-            self._control.resume(signal.instruction)
-            PlanControlStore().clear(self._session_id)
+        apply_control_signal(self)
 
     async def _run_step(self, step: TodoStep) -> None:
         step.status = "running"
@@ -131,7 +125,7 @@ class PlanExecuteRunnerStepsMixin:
             todo_step.duration_s = max(round(monotonic() - started_at, 3), 0.001)
             if context is not None:
                 active_loop = loop or self._active_step_loop
-                await record_step_result(self._step_results, self._step_result_store, self._session_id, todo_step, context.plan_step, active_loop, request_id, self._steps_dir)  # noqa: E501
+                await record_step_result(self._step_results, self._step_result_store, self._session_id, self._plan_name, todo_step, context.plan_step, active_loop, request_id, self._steps_dir)  # noqa: E501
             self._active_step_loop = None
             self._current_step_id = 0
             self._persist_state()

@@ -4,19 +4,16 @@ from typing import Any
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger
+from backend.core.task_queue_cancel import TaskQueueError, cancel_flag_active, cancel_payload_task
 from backend.core.task_queue_children import get_queue_children
 from backend.core.task_queue_claim import claim_task
 from backend.core.task_queue_persistence import TaskPersistence
-from backend.core.task_queue_recovery import recover_stale_task_payloads
-from backend.core.task_queue_support import update_terminal_payload_state, wait_for_task_payloads
+from backend.core.task_queue_recover_support import recover_stale_task_payloads
 from backend.core.task_queue_submit import CapacitySubmitError, CapacitySubmitRequest, QueueSubmitSpec, build_payload, enforce_capacity, fail_saved_payloads, parent_id
+from backend.core.task_queue_support import update_terminal_payload_state, wait_for_task_payloads
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")
-
-
-class TaskQueueError(AgentError):
-    pass
 
 
 class TaskQueue:
@@ -142,6 +139,12 @@ class TaskQueue:
 
     async def get_children(self, parent_task_id: str) -> list[TaskPayload]:
         return await get_queue_children(self, parent_task_id)
+
+    async def cancel(self, task_id: str, worker_id: str = "") -> bool:
+        return await cancel_payload_task(self, task_id, worker_id)
+
+    async def is_cancel_requested(self, task_id: str) -> bool:
+        return await cancel_flag_active(self, task_id)
 
     async def _save_payload(self, payload: TaskPayload) -> None:
         if self._persistence is not None:

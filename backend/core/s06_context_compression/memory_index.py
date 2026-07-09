@@ -16,10 +16,11 @@ class MemoryIndex:
         ]
         matches = [item for item in scored if item[0] > 0]
         matches.sort(key=lambda item: (item[0], item[1].hit_count), reverse=True)
-        selected = [entry for _, entry in matches[:limit]]
-        for entry in selected:
-            entry.hit_count += 1
-        return selected
+        # 召回时不自增 hit_count：它是召回权重（见 _score），须由持久化的命中计数提供。
+        # 此前每次 match 都无条件 +=1 却从不落库，既让内存态与磁盘态漂移，
+        # 又会在将来接线写回时固化脏数据。命中回写应由独立的持久化管线
+        # （如 MemoryStore 上的原子 bump 方法）在命中或会话结束时统一写入。
+        return [entry for _, entry in matches[:limit]]
 
     def add(self, entry: MemoryEntry) -> None:
         self._store.entries.append(entry)

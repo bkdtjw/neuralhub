@@ -18,7 +18,8 @@ MessageKind = Literal[
 
 
 def generate_id() -> str:
-    return uuid4().hex[:12]
+    # 全 32 位 uuid4 hex（122 bit 随机），避免 messages.id 全局主键长期生日碰撞。
+    return uuid4().hex
 
 
 class ToolCall(BaseModel):
@@ -63,8 +64,27 @@ class Message(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    type: Literal["text", "reasoning", "tool_call", "tool_result", "done"]
+    # "usage" carries {prompt_tokens, completion_tokens, cached_prompt_tokens};
+    # emitted mid-stream so streaming responses can report token usage.
+    type: Literal["text", "reasoning", "tool_call", "tool_result", "done", "usage"]
     data: Any = None
+
+
+def merge_usage(acc: dict[str, Any], data: Any) -> None:
+    """Fold a usage StreamChunk payload into ``acc`` in place.
+
+    Uses last-non-zero-per-field semantics (never sums): Anthropic reports
+    prompt/cached tokens on ``message_start`` and completion tokens on
+    ``message_delta`` as two separate usage chunks, so summing would double
+    count while plain last-write-wins would let the completion chunk's zeroed
+    prompt field wipe out the real prompt count.
+    """
+    if not isinstance(data, dict):
+        return
+    for key in ("prompt_tokens", "completion_tokens", "cached_prompt_tokens"):
+        value = data.get(key)
+        if value:
+            acc[key] = int(value)
 
 
 __all__ = [
@@ -76,5 +96,6 @@ __all__ = [
     "ToolResult",
     "Message",
     "StreamChunk",
+    "merge_usage",
     "generate_id",
 ]

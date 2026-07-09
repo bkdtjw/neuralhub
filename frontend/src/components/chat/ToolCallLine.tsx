@@ -7,6 +7,9 @@ interface ToolCallLineProps {
   call: ToolCall;
   result?: ToolResult;
   pending?: boolean;
+  awaitingApproval?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -39,13 +42,36 @@ const summarizeArgs = (call: ToolCall): string => {
   }
 };
 
-export default function ToolCallLine({ call, result, pending = false }: ToolCallLineProps) {
+export default function ToolCallLine({ call, result, pending = false, awaitingApproval = false, onApprove, onReject }: ToolCallLineProps) {
   const [expanded, setExpanded] = useState(false);
   const label = `${call.name}(${summarizeArgs(call)})`;
 
   useEffect(() => {
     if (result?.isError) setExpanded(true);
   }, [result?.isError]);
+
+  if (awaitingApproval) {
+    return (
+      <div className="flex flex-col gap-2 py-1 font-sans text-sm">
+        <div className="flex items-center gap-2 text-[var(--as-text-secondary)]">
+          <span className="text-xs text-[var(--as-danger)]">!</span>
+          <span className="min-w-0 break-words">需要审批 {label}</span>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={onApprove} className="as-primary-btn h-7 px-3 text-xs">
+            批准
+          </button>
+          <button
+            type="button"
+            onClick={onReject}
+            className="inline-flex h-7 items-center justify-center rounded-lg border border-[var(--as-border-strong)] px-3 text-xs text-[var(--as-danger)] transition hover:border-[var(--as-danger)] hover:bg-[var(--as-hover)]"
+          >
+            拒绝
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (pending) {
     return (

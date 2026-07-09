@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from backend.common.logging import get_logger
 from backend.common.metrics import incr
+from backend.core.task_queue_persistence import TaskPersistence
 from backend.core.task_queue_types import TaskPayload, TaskStatus
 
 logger = get_logger(component="task_queue")
@@ -20,6 +21,7 @@ class TaskQueueStore(Protocol):
     _index_key: str
     _queue_key: str
     _task_ttl_seconds: int
+    _persistence: TaskPersistence | None
 
     async def get_status(self, task_id: str) -> TaskPayload | None: ...
     async def fail(self, task_id: str, error: str, worker_id: str = "") -> bool: ...
@@ -128,6 +130,14 @@ async def _fail_stuck_tasks(
 
 def _should_detach(payload: TaskPayload, now: float) -> bool:
     return payload.status == TaskStatus.RUNNING and not _lease_expired(payload, now)
+
+
+async def _expire_stale_task(queue: TaskQueueStore, payload: TaskPayload) -> None:
+    await _safe_fail(
+        queue,
+        payload.task_id,
+        f"超时重试 {payload.max_retries} 次后仍未完成",
+    )
 
 
 async def _safe_fail(queue: TaskQueueStore, task_id: str, error: str) -> None:

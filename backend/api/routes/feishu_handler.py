@@ -216,7 +216,17 @@ class FeishuMessageHandler:
             await self._menu_state.set_chat(open_id, chat_id)
         started_at = monotonic()
         with build_feishu_log_context(chat_id):
-            if await self._seen(event_id):
+            try:
+                is_duplicate = await self._seen(event_id)
+            except Exception as exc:
+                # 去重是尽力而为的优化：Redis 不可用/抖动导致 _seen 抛错时降级为“放行”，
+                # 最坏是极少数重复消息被处理两次，远好于整条消息被静默丢弃、用户零反馈。
+                is_duplicate = False
+                logger.warning(
+                    "feishu_dedup_unavailable", event_id=event_id, error=str(exc)
+                )
+                await incr("feishu_dedup_failures")
+            if is_duplicate:
                 logger.debug("feishu_event_duplicate", event_id=event_id)
                 return
             if sender.get("sender_type") == "bot":

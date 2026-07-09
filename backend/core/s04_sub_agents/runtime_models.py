@@ -12,6 +12,7 @@ class OrchestratorConfig(BaseModel):
     default_model: str
     timeout_per_agent: float = 120.0
     agents_dir: str | None = None
+    max_parallel_agents: int = 5
 
 
 class IsolatedRegistryConfig(BaseModel):

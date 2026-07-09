@@ -12,6 +12,7 @@ from backend.common.prometheus_metrics import observe_sub_agent_task
 from backend.common.tracing import trace_span
 from backend.core.s05_skills import AgentRuntime
 from backend.core.task_queue import TaskPayload, TaskQueue
+from backend.core.task_queue_cancel import PARENT_CANCELLED_ERROR
 from backend.storage import SessionStore
 
 from . import task_queue_consumer_helpers as helpers
@@ -33,27 +34,25 @@ async def execute_agent_payload(
 ) -> None:
     timeout_seconds = helpers._timeout_seconds(payload.input_data)
     started_at = monotonic()
-    heartbeat = asyncio.create_task(
-        helpers._heartbeat_loop(
-            queue,
-            payload.task_id,
-            interval=HEARTBEAT_INTERVAL_SECONDS,
-            extension=LEASE_EXTENSION_SECONDS,
-        ),
-        name=f"sub-agent-heartbeat-{payload.task_id}",
-    )
+    cancel_event = asyncio.Event()
     try:
-        await _run_agent_payload(payload, queue, runtime, timeout_seconds, started_at)
+        await _run_agent_payload(payload, queue, runtime, timeout_seconds, started_at, cancel_event)
+    except asyncio.CancelledError:
+        # C5：父任务取消经心跳置 cancel_event 并 cancel run_task；兑现为协作式失败而非静默中断。
+        if not cancel_event.is_set():
+            raise
+        await helpers._safe_fail(queue, payload.task_id, PARENT_CANCELLED_ERROR, payload.worker_id)
+        logger.warning(
+            "sub_agent_task_cancelled",
+            task_id=payload.task_id,
+            worker_id=payload.worker_id,
+        )
     except TimeoutError:
         error = f"子 agent 执行超时（{timeout_seconds}s）"
         await fail_agent_payload(AgentFailureReport(payload, queue, error, started_at))
     except Exception as exc:  # noqa: BLE001
         error = f"子 agent 执行失败：{exc}"
         await fail_agent_payload(AgentFailureReport(payload, queue, error, started_at, exc))
-    finally:
-        heartbeat.cancel()
-        with suppress(asyncio.CancelledError):
-            await heartbeat
 
 
 async def _run_agent_payload(
@@ -62,6 +61,7 @@ async def _run_agent_payload(
     runtime: AgentRuntime,
     timeout_seconds: float,
     started_at: float,
+    cancel_event: asyncio.Event,
 ) -> None:
     spec_id = str(payload.input_data.get("spec_id", ""))
     role = str(payload.input_data.get("role", ""))
@@ -75,10 +75,28 @@ async def _run_agent_payload(
         )
         loop, restored = await _build_sub_agent_loop(payload, runtime)
         run_input = "请继续之前未完成的任务" if restored else str(payload.input_data.get("input", ""))
-        result = await asyncio.wait_for(loop.run(run_input), timeout=timeout_seconds)
-        completion = await build_sub_agent_complete_result(loop, result)
-        completion["tool_call_count"] = helpers._tool_call_count(loop.messages)
-        completed = await queue.complete(payload.task_id, completion, worker_id=payload.worker_id)
+        run_task = asyncio.create_task(loop.run(run_input), name=f"sub-agent-run-{payload.task_id}")
+        # C5：心跳携带 run_task + cancel_event——检测到父取消即置位并 cancel run_task。
+        heartbeat = asyncio.create_task(
+            helpers._heartbeat_loop(
+                queue,
+                payload.task_id,
+                HEARTBEAT_INTERVAL_SECONDS,
+                LEASE_EXTENSION_SECONDS,
+                run_task,
+                cancel_event,
+            ),
+            name=f"sub-agent-heartbeat-{payload.task_id}",
+        )
+        try:
+            result = await asyncio.wait_for(run_task, timeout=timeout_seconds)
+            completion = await build_sub_agent_complete_result(loop, result)
+            completion["tool_call_count"] = helpers._tool_call_count(loop.messages)
+            completed = await queue.complete(payload.task_id, completion, worker_id=payload.worker_id)
+        finally:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
     if not completed:
         error = "子 agent 完成结果写入失败"
         logger.warning(

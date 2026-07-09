@@ -14,7 +14,6 @@ from .logging_support import (
     adapter_logger,
     incr_llm_error,
     incr_llm_success,
-    incr_llm_success_usage,
     log_llm_request_end,
     log_llm_request_error,
     log_llm_request_retry,
@@ -111,6 +110,8 @@ class OllamaAdapter(OpenAICompatAdapter):
         try:
             async with httpx.AsyncClient(timeout=60.0, trust_env=load_http_client_config().trust_env) as client:
                 async with client.stream("POST", self._url, headers=self._headers(), json=payload) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
                     self._raise_for_status(response)
                     async for line in response.aiter_lines():
                         raw = line.split(":", 1)[1].strip() if line.startswith("data:") else line.strip()
@@ -126,19 +127,17 @@ class OllamaAdapter(OpenAICompatAdapter):
                             function = tool_call.get("function", {})
                             yield StreamChunk(type="tool_call", data={"id": tool_call.get("id", ""), "name": function.get("name", ""), "arguments": function.get("arguments", {})})
                         if data.get("done"):
-                            prompt_count = int(data.get("prompt_eval_count") or 0)
-                            completion_count = int(data.get("eval_count") or 0)
-                            await incr_llm_success_usage(
-                                LLMUsage(prompt_tokens=prompt_count, completion_tokens=completion_count)
-                                if prompt_count or completion_count
-                                else None
-                            )
+                            usage = LLMUsage(prompt_tokens=data.get("prompt_eval_count", 0), completion_tokens=data.get("eval_count", 0))
+                            yield StreamChunk(type="usage", data={"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "cached_prompt_tokens": 0})
+                            result = LLMResponse(content="", usage=usage)
+                            await incr_llm_success(result)
                             log_llm_request_end(
                                 logger,
                                 model=model,
                                 provider=self._provider,
                                 request_type="stream",
                                 started_at=started_at,
+                                response=result,
                             )
                             yield StreamChunk(type="done")
                             return

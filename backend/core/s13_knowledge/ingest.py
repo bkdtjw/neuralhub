@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from backend.core.s13_knowledge.chunker import split_text
@@ -22,12 +23,17 @@ class KnowledgeIngestor:
 
     async def ingest(self, request: IngestRequest) -> IngestResult:
         document = _document_for(request)
+        # 幂等 upsert：同名文件重入库=替换而非追加，杜绝崩溃重试造成的重复文档/向量。
+        existing = await self._store.get_document_by(request.kb_id, document.filename)
+        if existing is not None:
+            await self._store.delete_document(existing.id)
         await self._store.create_document(document)
         try:
-            text = parse_document(request.file_path)
+            # parse+split 纯 CPU（pypdf 逐页 extract 大文件数十秒），放到线程执行，
+            # 避免冻结事件循环拖停 sub_worker 心跳续租与 API 主进程 WS/HTTP 调度。
+            chunks = await asyncio.to_thread(_parse_and_split, request.file_path)
         except Exception as exc:  # noqa: BLE001
             return await self._finish(document, "failed", 0, 0, str(exc))
-        chunks = split_text(text)
         if not chunks:
             return await self._finish(document, "empty", 0, 0, "")
         try:
@@ -87,6 +93,12 @@ class KnowledgeIngestor:
             total_chunks=total_chunks,
             error=error,
         )
+
+
+def _parse_and_split(path: Path) -> list[str]:
+    # 同步 parse+split 合并成一个函数，供 asyncio.to_thread 在工作线程整体执行。
+    text = parse_document(path)
+    return split_text(text)
 
 
 def _document_for(request: IngestRequest) -> KnowledgeDocument:

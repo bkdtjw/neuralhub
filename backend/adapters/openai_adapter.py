@@ -9,6 +9,7 @@ from backend.common import LLMError
 from backend.common.types import LLMRequest, LLMResponse, Message, ProviderConfig, StreamChunk
 from backend.config.http_client import load_http_client_config
 
+from .http_error_support import error_message, is_context_overflow
 from .logging_support import (
     adapter_logger,
     incr_llm_error,
@@ -22,7 +23,6 @@ from .openai_streaming import stream_response
 from .openai_support import (
     build_headers,
     build_payload,
-    error_message,
     parse_response,
     to_openai_messages,
 )
@@ -40,6 +40,9 @@ class OpenAICompatAdapter(LLMAdapter):
         self._default_model = config.default_model
         self._extra_headers = dict(config.extra_headers)
         self._extra_body = dict(config.extra_body)
+        # Opt-in per provider via extra_body: gateways that reject
+        # stream_options simply leave it unset (usage stays 0, no 400).
+        self._stream_usage = bool(self._extra_body.pop("stream_usage", False))
         self._enable_prompt_cache = config.enable_prompt_cache
         self._prompt_cache_retention = config.prompt_cache_retention
         self._max_retries = 3
@@ -145,6 +148,7 @@ class OpenAICompatAdapter(LLMAdapter):
             extra_body=self._extra_body,
             enable_prompt_cache=self._enable_prompt_cache,
             prompt_cache_retention=self._prompt_cache_retention,
+            include_usage=self._stream_usage,
         )
 
     def _to_openai_messages(self, messages: list[Message]) -> list[dict[str, object]]:
@@ -163,9 +167,9 @@ class OpenAICompatAdapter(LLMAdapter):
                 "SERVER_ERROR", "Provider server error", self._provider, response.status_code
             )
         if response.status_code >= 400:
-            raise LLMError(
-                "API_ERROR", error_message(response), self._provider, response.status_code
-            )
+            message = error_message(response)
+            code = "CONTEXT_OVERFLOW" if is_context_overflow(message) else "API_ERROR"
+            raise LLMError(code, message, self._provider, response.status_code)
 
     def _rate_limit_error(self, response: httpx.Response) -> LLMError:
         code = "RATE_LIMIT"

@@ -33,7 +33,7 @@ class SessionRecord(Base):
 class MessageRecord(Base):
     __tablename__ = "messages"
 
-    id: Mapped[str] = mapped_column(String(12), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("sessions.id", ondelete="CASCADE"),

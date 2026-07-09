@@ -56,13 +56,18 @@ async def send_tool_approval_card(
         calls = [call for call in data.get("tool_calls", []) if isinstance(call, dict)]
         if not calls:
             return
-        card = build_tool_approval_card(
-            calls,
-            chat_id=chat_id,
-            owner_id=getattr(loop, "_owner_id", ""),
-            session_id=getattr(loop._config, "session_id", ""),
-        )
-        await handler._client.send_card(chat_id, card)
+        owner_id = getattr(loop, "_owner_id", "")
+        session_id = getattr(loop._config, "session_id", "")
+        # 每个工具单独发一张卡：用户点击某工具按钮触发的整卡替换只影响该条消息，
+        # 不会清掉同批其余工具的审批按钮，从而避免其余调用挂到超时（G3）。
+        for call in calls:
+            card = build_tool_approval_card(
+                [call],
+                chat_id=chat_id,
+                owner_id=owner_id,
+                session_id=session_id,
+            )
+            await handler._client.send_card(chat_id, card)
     except Exception:
         logger.exception("feishu_tool_approval_card_failed", chat_id=chat_id)
 

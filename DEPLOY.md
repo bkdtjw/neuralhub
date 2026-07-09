@@ -9,7 +9,11 @@
 ## 环境配置
 - 复制 `.env.example` 为 `.env`
 - 必填项：`DATABASE_URL`、`REDIS_URL`、`AUTH_SECRET`
-- 可选项：`GUNICORN_WORKERS`、`LOG_LEVEL`、`LOG_FORMAT`、`LOG_STDOUT`、`LOG_FILE_ENABLED`、`LOG_FILE_SCOPE`、`LOG_SEARCH_BACKEND`、`LOKI_BASE_URL`、`API_PORT`
+- 可选项：`GUNICORN_WORKERS`、`LOG_LEVEL`、`LOG_FORMAT`、`LOG_STDOUT`、`LOG_FILE_ENABLED`、`LOG_FILE_SCOPE`、`LOG_SEARCH_BACKEND`、`LOKI_BASE_URL`、`API_PORT`、`AUTO_CREATE_TABLES`
+
+> **Schema 管理（`AUTO_CREATE_TABLES`）**：默认 `true`，应用启动时由 `init_db` 执行 `create_all` 自动建表（与 entrypoint 的 `alembic upgrade head` 双轨）。生产环境的目标是设为 `false`，让 alembic 迁移成为 schema 的唯一权威，避免"新列只在 model、alembic 漏迁移"的双轨风险。**注意**：当前迁移链尚无覆盖全部核心表的 baseline（链头仅 alter 既有表，`providers.roles` 也只由 `init_db` 补列），因此在补齐 alembic baseline 之前，请勿在全新数据库上直接设 `false`——否则核心表不会被创建。设为 `false` 时 `init_db` 仅做数据库连通性检查。
+
+> **进程数（`GUNICORN_WORKERS`）**：默认 `1`。任务队列、pubsub、会话历史已走 Redis/Postgres，可跨 worker 共享；但 **ProviderManager 的 provider 配置缓存**与 **WebSocket ConnectionManager 的 loop 缓存**仍是【进程内单例】，多 worker 下会状态分裂——例如在一个 worker 改了 provider 配置，其它 worker 仍读旧缓存；WebSocket 连接也需 sticky 到同一 worker 才能命中其 loop。因此在为这些内存单例接入跨 worker 失效机制（如 Redis pub/sub 广播缓存失效）之前，请保持 `GUNICORN_WORKERS=1`。设 >1 时 `gunicorn_conf.py` 会打印告警。要横向扩容，优先多副本 + 负载均衡（每副本单 worker）而非单进程多 worker。
 
 ## Volume 映射
 docker-compose.yml 配置了以下 volume 映射：

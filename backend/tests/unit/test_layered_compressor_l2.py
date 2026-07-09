@@ -46,6 +46,8 @@ async def test_level2_archives_oldest_large_tool_result_on_threshold(tmp_path: P
             content="",
             tool_results=[ToolResult(tool_call_id="tc1", output=output)],
         ),
+        # 让大工具结果落在受保护的最近 6 条之外，才会进入可归档区
+        *[Message(role="user", content=f"recent {index}") for index in range(6)],
     ]
     compressor = LayeredCompressor(
         NoopAdapter(),  # type: ignore[arg-type]

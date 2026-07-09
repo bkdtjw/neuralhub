@@ -38,22 +38,22 @@ class StepResultStore:
         self._base_dir = Path(base_dir)
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
-    def write(self, session_id: str, result: StepResult) -> Path:
-        path = self._path_for(session_id, result.step_id)
+    def write(self, session_id: str, plan_name: str, result: StepResult) -> Path:
+        path = self._path_for(session_id, plan_name, result.step_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         tmp_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
         tmp_path.replace(path)
         return path
 
-    def read(self, session_id: str, step_id: int) -> StepResult | None:
-        path = self._path_for(session_id, step_id)
+    def read(self, session_id: str, plan_name: str, step_id: int) -> StepResult | None:
+        path = self._path_for(session_id, plan_name, step_id)
         if not path.exists():
             return None
         return StepResult.model_validate_json(path.read_text(encoding="utf-8"))
 
-    def list(self, session_id: str) -> list[StepResult]:
-        session_dir = self._session_dir(session_id)
+    def list(self, session_id: str, plan_name: str) -> list[StepResult]:
+        session_dir = self._session_dir(session_id, plan_name)
         if not session_dir.exists():
             return []
         results: list[StepResult] = []
@@ -64,14 +64,15 @@ class StepResultStore:
                 continue
         return results
 
-    def _path_for(self, session_id: str, step_id: int) -> Path:
+    def _path_for(self, session_id: str, plan_name: str, step_id: int) -> Path:
         if step_id < 1:
             raise ValueError(f"Invalid step_id: {step_id}")
-        return self._session_dir(session_id) / f"step_{step_id}.json"
+        return self._session_dir(session_id, plan_name) / f"step_{step_id}.json"
 
-    def _session_dir(self, session_id: str) -> Path:
+    def _session_dir(self, session_id: str, plan_name: str) -> Path:
         _validate_file_part(session_id, "session_id")
-        return self._base_dir / session_id
+        _validate_file_part(plan_name, "plan_name")
+        return self._base_dir / session_id / plan_name
 
 
 def _validate_file_part(value: str, field_name: str) -> None:
