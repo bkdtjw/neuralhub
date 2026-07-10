@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from backend.storage.provider_store import ProviderStore
     from backend.storage.sub_agent_task_store import SubAgentTaskStore
     from backend.storage.task_config_store import TaskConfigStore
+    from backend.storage.x_monitor_store import XMonitorStore
 
 __all__ = [
     "HookConfigStore",
@@ -21,6 +22,7 @@ __all__ = [
     "SessionStore",
     "SubAgentTaskStore",
     "TaskConfigStore",
+    "XMonitorStore",
     "init_db",
 ]
 
@@ -50,4 +52,8 @@ def __getattr__(name: str) -> Any:
         from backend.storage.sub_agent_task_store import SubAgentTaskStore
 
         return SubAgentTaskStore
+    if name == "XMonitorStore":
+        from backend.storage.x_monitor_store import XMonitorStore
+
+        return XMonitorStore
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

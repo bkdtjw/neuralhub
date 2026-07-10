@@ -53,6 +53,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         init_task_queue(app)
         start_artifact_gc(app)
         try:
+            from backend.api.x_monitor_runner import start_x_monitor_runner
+            start_x_monitor_runner(app)  # 开关关闭时内部直接返回，不启动
+        except Exception:  # noqa: BLE001
+            logger.exception("x_monitor_runner_start_failed")
+        try:
             from backend.adapters.provider_manager import ProviderManager
             from backend.core.s02_tools.mcp import MCPServerManager
             from backend.core.s07_task_system import (
@@ -121,6 +126,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise AgentError("APP_LIFESPAN_ERROR", str(exc)) from exc
     finally:
         await stop_artifact_gc(app)
+        try:
+            from backend.api.x_monitor_runner import stop_x_monitor_runner
+            await stop_x_monitor_runner(app)  # 未启动时为 no-op
+        except Exception:  # noqa: BLE001
+            logger.exception("x_monitor_runner_stop_failed")
         if task_scheduler is not None:
             try:
                 await task_scheduler.stop()
@@ -197,6 +207,10 @@ def create_app() -> FastAPI:
     if app_settings.x_api_enabled:
         from backend.api.routes import x_api
         app.include_router(x_api.router)
+
+    if app_settings.x_monitor_enabled:
+        from backend.api.routes import x_monitors
+        app.include_router(x_monitors.router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

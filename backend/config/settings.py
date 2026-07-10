@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     x_rank_weight_likes: float = Field(default=1.0, ge=0.0)
     x_rank_weight_retweets: float = Field(default=2.0, ge=0.0)
     x_rank_weight_views: float = Field(default=0.01, ge=0.0)
+    # X 关键词监控（P3）——独立开关，默认关闭；关闭时路由不注册、轮询器不启动。
+    x_monitor_enabled: bool = False
+    x_monitor_tick_seconds: float = Field(default=60.0, ge=10.0)
+    # 单条监控的最小轮询间隔（分钟）与监控条数上限：护住共享 X 账号额度。
+    x_monitor_min_interval_minutes: int = Field(default=15, ge=1)
+    x_monitor_max_count: int = Field(default=20, ge=1)
+    x_monitor_search_limit: int = Field(default=20, ge=1, le=50)
     workspace_roots: str = ""
     notion_api_key: str = ""
     llm_fallback_provider_ids: str = ""
