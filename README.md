@@ -2,7 +2,7 @@
 
 # 🧠 NeuralHub
 
-**自建全栈 AI Agent 平台 —— 会话、工具、技能、知识库、舆情雷达，一套容器跑起来**
+**AI Agent 平台 —— 会话、工具、技能、知识库、舆情雷达，一套容器跑起来**
 
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
