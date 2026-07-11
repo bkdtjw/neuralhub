@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from backend.common.errors import AgentError
-from backend.common.types import AgentConfig, SubAgentResult
+from backend.common.types import AgentConfig, AgentEventHandler, SubAgentResult
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.system_prompt import build_system_prompt
 
@@ -54,6 +54,7 @@ def _format_agent_error(role_name: str, exc: AgentError) -> str:
 async def run_isolated_agent(
     run: IsolatedAgentRun,
     runtime: IsolatedAgentRuntime,
+    on_event: AgentEventHandler | None = None,
 ) -> SubAgentResult:
     try:
         loop = AgentLoop(
@@ -74,6 +75,8 @@ async def run_isolated_agent(
                 ),
             ),
         )
+        if on_event is not None:
+            loop.on(on_event)
         result = await asyncio.wait_for(
             loop.run(_build_task_with_dependencies(run)),
             timeout=runtime.config.timeout_per_agent,

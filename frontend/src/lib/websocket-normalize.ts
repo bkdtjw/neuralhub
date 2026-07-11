@@ -1,7 +1,12 @@
 import { mapFileDiffs } from "@/lib/tool-diffs";
-import type { AgentStatus, Message, SubAgentEventType, ToolCall, WsIncoming } from "@/types";
+import type { AgentStatus, Message, SubAgentEventType, SubAgentSource, ToolCall, WsIncoming } from "@/types";
 
-const SUB_AGENT_TYPES = new Set(["sub_agent_spawned", "sub_agent_completed", "sub_agent_failed"]);
+const SUB_AGENT_TYPES = new Set([
+  "sub_agent_spawned",
+  "sub_agent_completed",
+  "sub_agent_failed",
+  "sub_agent_progress",
+]);
 
 const numberOrUndefined = (value: unknown): number | undefined => (
   typeof value === "number" ? value : undefined
@@ -54,6 +59,13 @@ export const normalizeWsIncoming = (raw: Record<string, unknown>): WsIncoming =>
   if (SUB_AGENT_TYPES.has(type)) {
     return {
       type: type as SubAgentEventType,
+      runId: String(raw.run_id ?? ""),
+      source: (raw.source as SubAgentSource | undefined) ?? undefined,
+      stage: numberOrUndefined(raw.stage),
+      role: String(raw.role ?? raw.spec_id ?? ""),
+      kind: String(raw.kind ?? ""),
+      preview: String(raw.preview ?? ""),
+      skipped: Boolean(raw.skipped),
       taskId: String(raw.task_id ?? ""),
       specId: String(raw.spec_id ?? ""),
       completed: numberOrUndefined(raw.completed),

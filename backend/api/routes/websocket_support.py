@@ -14,6 +14,7 @@ from backend.core.s01_agent_loop import AgentLoop
 from backend.storage import SessionStore
 
 from .websocket_plan_events import plan_event_to_ws_message
+from .websocket_sub_agent import sub_agent_event_to_ws
 
 
 class LoopSettings(BaseModel):
@@ -186,25 +187,9 @@ def event_to_ws_message(event: AgentEvent) -> dict[str, Any]:
         return {"type": "tool_approval_required", **data}
     if event.type == "security_reject" and isinstance(data, ToolResult):
         return tool_result_payload("security_reject", data)
-    if event.type == "sub_agent_spawned" and isinstance(data, dict):
-        return {
-            "type": "sub_agent_spawned",
-            "total": data.get("total"),
-            "submitted": data.get("submitted"),
-            "reused": data.get("reused"),
-            "specs": data.get("specs"),
-            "message": data.get("message"),
-        }
-    if event.type in {"sub_agent_completed", "sub_agent_failed"} and isinstance(data, dict):
-        return {
-            "type": event.type,
-            "task_id": data.get("task_id"),
-            "spec_id": data.get("spec_id"),
-            "completed": data.get("completed"),
-            "total": data.get("total"),
-            "error": data.get("error"),
-            "message": data.get("message"),
-        }
+    sub_agent_message = sub_agent_event_to_ws(event)
+    if sub_agent_message is not None:
+        return sub_agent_message
     plan_message = plan_event_to_ws_message(event)
     if plan_message is not None:
         return plan_message

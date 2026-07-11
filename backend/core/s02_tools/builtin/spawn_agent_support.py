@@ -115,6 +115,8 @@ async def _poll_progress(
             deps.event_handler,
             "sub_agent_completed" if status.status == TaskStatus.SUCCEEDED else "sub_agent_failed",
             {
+                "source": "spawn",
+                "run_id": deps.parent_task_id,
                 "task_id": status.task_id,
                 "spec_id": item.label,
                 "completed": completed,
@@ -143,6 +145,8 @@ async def _emit_missing_events(
             deps.event_handler,
             "sub_agent_completed" if status.status == TaskStatus.SUCCEEDED else "sub_agent_failed",
             {
+                "source": "spawn",
+                "run_id": deps.parent_task_id,
                 "task_id": status.task_id,
                 "spec_id": item.label,
                 "completed": completed,

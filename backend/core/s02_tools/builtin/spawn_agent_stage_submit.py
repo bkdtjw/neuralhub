@@ -59,6 +59,8 @@ async def emit_stage_event(event: StageEvent) -> None:
             event.deps.event_handler,
             "sub_agent_spawned",
             {
+                "source": "spawn",
+                "run_id": event.deps.parent_task_id,
                 "total": len(event.runnable),
                 "submitted": len(event.submitted),
                 "reused": len(event.reused),

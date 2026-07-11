@@ -28,6 +28,7 @@ AgentEventType = Literal[
     "sub_agent_spawned",
     "sub_agent_completed",
     "sub_agent_failed",
+    "sub_agent_progress",
     "error",
     "plan_recon_start",
     "plan_recon_done",

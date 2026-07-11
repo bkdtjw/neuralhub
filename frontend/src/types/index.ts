@@ -204,10 +204,23 @@ export interface TraceSpanResult {
   spans: TraceSpan[];
 }
 
-export type SubAgentEventType = "sub_agent_spawned" | "sub_agent_completed" | "sub_agent_failed";
+export type SubAgentEventType =
+  | "sub_agent_spawned"
+  | "sub_agent_completed"
+  | "sub_agent_failed"
+  | "sub_agent_progress";
+
+export type SubAgentSource = "orchestrate" | "dispatch" | "spawn";
 
 export interface SubAgentProgress {
   type: SubAgentEventType;
+  runId?: string;
+  source?: SubAgentSource;
+  stage?: number;
+  role?: string;
+  kind?: string;
+  preview?: string;
+  skipped?: boolean;
   taskId?: string;
   specId?: string;
   completed?: number;

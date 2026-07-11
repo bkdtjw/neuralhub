@@ -24,6 +24,7 @@ from .dynamic_orchestrator import (
     TaskWave,
 )
 from .isolated_runner import run_isolated_agent
+from .progress import SubAgentProgressEmitter
 from .runtime_models import (
     IsolatedAgentRun,
     IsolatedAgentRuntime,
@@ -77,6 +78,7 @@ __all__ = [
     "SubAgentTraceEvent",
     "Orchestrator",
     "OrchestrationError",
+    "SubAgentProgressEmitter",
     "run_isolated_agent",
     "OrchestratorConfig",
     "IsolatedRegistryConfig",

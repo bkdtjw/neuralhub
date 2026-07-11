@@ -5,9 +5,21 @@ from typing import Any
 from pydantic import ValidationError
 
 from backend.adapters.base import LLMAdapter
-from backend.common.types import SimplePlan, ToolDefinition, ToolExecuteFn, ToolParameterSchema, ToolResult
+from backend.common.types import (
+    AgentEventHandler,
+    SimplePlan,
+    ToolDefinition,
+    ToolExecuteFn,
+    ToolParameterSchema,
+    ToolResult,
+)
 from backend.core.s02_tools import ToolRegistry
-from backend.core.s04_sub_agents import OrchestrationError, Orchestrator, OrchestratorConfig
+from backend.core.s04_sub_agents import (
+    OrchestrationError,
+    Orchestrator,
+    OrchestratorConfig,
+    SubAgentProgressEmitter,
+)
 
 
 def _format_validation_error(exc: ValidationError) -> str:
@@ -21,6 +33,7 @@ def create_orchestrate_agents_tool(
     adapter: LLMAdapter,
     parent_registry: ToolRegistry,
     config: OrchestratorConfig,
+    event_handler: AgentEventHandler | None = None,
 ) -> tuple[ToolDefinition, ToolExecuteFn]:
     definition = ToolDefinition(
         name="orchestrate_agents",
@@ -51,7 +64,12 @@ def create_orchestrate_agents_tool(
     async def execute(args: dict[str, Any]) -> ToolResult:
         try:
             plan = SimplePlan.model_validate(args)
-            orchestrator = Orchestrator(adapter=adapter, parent_registry=parent_registry, config=config)
+            orchestrator = Orchestrator(
+                adapter=adapter,
+                parent_registry=parent_registry,
+                config=config,
+                progress=SubAgentProgressEmitter(event_handler, "orchestrate"),
+            )
             return await orchestrator.execute(plan)
         except ValidationError as exc:
             return ToolResult(output=f"编排计划格式错误: {_format_validation_error(exc)}", is_error=True)

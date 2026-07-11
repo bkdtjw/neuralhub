@@ -4,6 +4,7 @@ import { agentWs } from "@/lib/websocket";
 import { createConnectionHandlers } from "@/hooks/ws-connection";
 import { createReasoningTracker } from "@/hooks/ws-reasoning";
 import { errorText, useSessionStore } from "@/stores/sessionStore";
+import { useSubAgentStore } from "@/stores/subAgentStore";
 import type { SubAgentProgress, ToolCall, ToolResult, WsIncoming } from "@/types";
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -231,16 +232,9 @@ export function useWebSocket(sessionId: string) {
     };
 
     const onSubAgentProgress = (payload: unknown) => {
-      const p = payload as SubAgentProgress;
-      const content = p.message || p.error || "";
-      if (!content) return;
-      if (waitingForToolResults.current) flushPendingMessage();
-      useSessionStore.getState().addMessage({
-        id: makeId(),
-        role: "assistant",
-        content,
-        timestamp: new Date().toISOString(),
-      });
+      // 子 agent 进度不再刷普通聊天气泡（观感与模型回复混淆、且会误触发
+      // flushPendingMessage 孤儿化 tool_result），统一进 subAgentStore 由面板可视化。
+      useSubAgentStore.getState().ingest(sessionId, payload as SubAgentProgress);
     };
 
     const onDone = () => {
@@ -292,6 +286,7 @@ export function useWebSocket(sessionId: string) {
     agentWs.on("sub_agent_spawned", onSubAgentProgress);
     agentWs.on("sub_agent_completed", onSubAgentProgress);
     agentWs.on("sub_agent_failed", onSubAgentProgress);
+    agentWs.on("sub_agent_progress", onSubAgentProgress);
     agentWs.on("tool_approval_required", onToolApprovalRequired);
     agentWs.on("done", onDone);
     agentWs.on("error", onError);
@@ -310,6 +305,7 @@ export function useWebSocket(sessionId: string) {
       agentWs.off("sub_agent_spawned", onSubAgentProgress);
       agentWs.off("sub_agent_completed", onSubAgentProgress);
       agentWs.off("sub_agent_failed", onSubAgentProgress);
+      agentWs.off("sub_agent_progress", onSubAgentProgress);
       agentWs.off("tool_approval_required", onToolApprovalRequired);
       agentWs.off("done", onDone);
       agentWs.off("error", onError);

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef } from "react";
-import { Code2, Search, WandSparkles, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Code2, Search, WandSparkles, type LucideIcon } from "lucide-react";
 import { useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 
 import InputBar from "@/components/chat/InputBar";
 import MessageList from "@/components/chat/MessageList";
+import SubAgentPanel from "@/components/chat/SubAgentPanel";
 import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
 import { agentWs } from "@/lib/websocket";
 import { useSession } from "@/hooks/useSession";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAgentStore } from "@/stores/agentStore";
 import { useSessionStore } from "@/stores/sessionStore";
+import { isRunActive, useSubAgentStore } from "@/stores/subAgentStore";
 import type { ChatRunOptions } from "@/types";
 
 const EMPTY_SUGGESTIONS: { icon: LucideIcon; label: string; prompt: string }[] = [
@@ -36,6 +38,22 @@ export default function Session() {
   const currentProviderId = useAgentStore((state) => state.currentProviderId);
   const providers = useAgentStore((state) => state.providers);
   const workspace = useAgentStore((state) => state.workspace);
+
+  const [panelOpen, setPanelOpen] = useState(false);
+  const subAgentRuns = useSubAgentStore((state) => state.runs);
+  const lastRunId = useSubAgentStore((state) => state.lastRunId);
+  const { runCount, activeAgentCount } = useMemo(() => {
+    const sessionRuns = Object.values(subAgentRuns).filter((run) => run.sessionId === sessionId);
+    return {
+      runCount: sessionRuns.length,
+      activeAgentCount: sessionRuns.filter(isRunActive).length,
+    };
+  }, [subAgentRuns, sessionId]);
+
+  useEffect(() => {
+    // 首次出现本会话的子 agent 运行时自动展开面板，让编排过程"开箱可见"。
+    if (lastRunId.startsWith(`${sessionId}:`)) setPanelOpen(true);
+  }, [lastRunId, sessionId]);
 
   const activeSession = sessions.find((item) => item.id === sessionId) ?? sessions.find((item) => item.id === currentSessionId);
   const workspaceName = (workspace || activeSession?.workspace || "").split(/[/\\]/).filter(Boolean).pop();
@@ -76,6 +94,30 @@ export default function Session() {
         <div className="text-xs text-[var(--as-text-subtle)]">{workspaceName ? `项目：${workspaceName}` : ""}</div>
         <div className="justify-self-center text-sm font-medium text-[var(--as-text)]">新线程</div>
         <div className="flex justify-self-end gap-2">
+          <button
+            type="button"
+            onClick={() => setPanelOpen((value) => !value)}
+            className={`relative flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+              panelOpen
+                ? "border-[var(--as-accent)] bg-[var(--as-surface)] text-[var(--as-accent-soft)]"
+                : "border-[var(--as-border-strong)] bg-[var(--as-surface)] text-[var(--as-text-secondary)] hover:border-[var(--as-accent)] hover:text-[var(--as-accent-soft)]"
+            }`}
+            title="子 Agent 面板"
+          >
+            <Bot size={13} />
+            子 Agent
+            {runCount ? (
+              <span
+                className={`ml-0.5 rounded px-1 font-mono text-[10px] ${
+                  activeAgentCount
+                    ? "animate-pulse bg-[var(--as-thinking-soft)] text-[var(--as-thinking)]"
+                    : "bg-[var(--as-surface-low)] text-[var(--as-text-subtle)]"
+                }`}
+              >
+                {runCount}
+              </span>
+            ) : null}
+          </button>
           <KnowledgeStatusPill />
           {modelLabel ? (
             <span className="rounded-md border border-[var(--as-border-strong)] bg-[var(--as-surface)] px-2.5 py-1 font-mono text-[11px] text-[var(--as-text-secondary)]">
@@ -89,13 +131,18 @@ export default function Session() {
         <ConnectionBanner state={connectionState} onReconnect={() => void agentWs.connect(sessionId)} />
       ) : null}
 
-      {hasMessages ? (
-        <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
-      ) : (
-        <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendInSession(prompt)} />
-      )}
-      <div className="absolute bottom-10 left-0 right-0 px-6">
-        <InputBar status={status} onSend={(text, options) => void sendInSession(text, options)} onAbort={abortRun} compact />
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {hasMessages ? (
+            <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
+          ) : (
+            <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendInSession(prompt)} />
+          )}
+          <div className="absolute bottom-10 left-0 right-0 px-6">
+            <InputBar status={status} onSend={(text, options) => void sendInSession(text, options)} onAbort={abortRun} compact />
+          </div>
+        </div>
+        {panelOpen ? <SubAgentPanel sessionId={sessionId} onClose={() => setPanelOpen(false)} /> : null}
       </div>
     </div>
   );

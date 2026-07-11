@@ -4,11 +4,13 @@ import asyncio
 
 from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
-from backend.common.types import AgentTask, ResolvedStage, SimplePlan, SubAgentResult, ToolResult, resolve_stages
+from backend.common.types import AgentTask, SimplePlan, SubAgentResult, ToolResult, resolve_stages
 from backend.core.s02_tools import ToolRegistry
 
 from .agent_definition import AgentDefinitionLoader
 from .isolated_runner import run_isolated_agent
+from .orchestrator_report import coerce_result, format_report, skip_result
+from .progress import SubAgentProgressEmitter
 from .runtime_models import IsolatedAgentRun, IsolatedAgentRuntime, OrchestratorConfig
 
 
@@ -25,6 +27,7 @@ class Orchestrator:
         adapter: LLMAdapter,
         parent_registry: ToolRegistry,
         config: OrchestratorConfig,
+        progress: SubAgentProgressEmitter | None = None,
     ) -> None:
         self._runtime = IsolatedAgentRuntime(
             adapter=adapter,
@@ -34,11 +37,20 @@ class Orchestrator:
         self._definition_loader = AgentDefinitionLoader(config.agents_dir)
         self._max_parallel_agents = config.max_parallel_agents
         self._sem: asyncio.Semaphore | None = None
+        self._progress = progress or SubAgentProgressEmitter(None, "orchestrate")
+        self._done = 0
+        self._total = 0
 
     async def execute(self, plan: SimplePlan) -> ToolResult:
         try:
             stages = resolve_stages(plan.tasks)
             task_map = {task.role: task for task in plan.tasks}
+            self._done, self._total = 0, len(plan.tasks)
+            await self._progress.spawned(
+                total=self._total,
+                specs=[task.role for task in plan.tasks],
+                message=f"多 Agent 编排启动：共 {len(stages)} 个阶段、{self._total} 个子任务",
+            )
             previous_outputs: dict[str, str] = {}
             failed_roles: set[str] = set()
             skipped_roles: set[str] = set()
@@ -55,7 +67,7 @@ class Orchestrator:
                     else:
                         previous_outputs[result.role] = result.output
             return ToolResult(
-                output=self._format_report(stages, results, skipped_roles),
+                output=format_report(stages, results, skipped_roles),
                 is_error=any(item.is_error for item in results),
             )
         except OrchestrationError:
@@ -82,9 +94,13 @@ class Orchestrator:
     ) -> list[SubAgentResult]:
         sem = self._ensure_semaphore()
 
-        async def _run_one(run: IsolatedAgentRun) -> SubAgentResult:
+        async def _run_one(role_name: str, run: IsolatedAgentRun) -> SubAgentResult:
             async with sem:
-                return await run_isolated_agent(run, self._runtime)
+                result = await run_isolated_agent(
+                    run, self._runtime, on_event=self._progress.child_observer(role_name, stage_id)
+                )
+            await self._emit_done(stage_id, role_name, result)
+            return result
 
         results_by_role: dict[str, SubAgentResult] = {}
         run_roles: list[str] = []
@@ -93,26 +109,46 @@ class Orchestrator:
             if failed_deps:
                 # 上游依赖失败：短路——不注入错误文本、不 spawn，直接产出跳过结果（级联跳过下游）。
                 skipped_roles.add(role_name)
-                results_by_role[role_name] = self._skip_result(stage_id, role_name, failed_deps)
+                skip = skip_result(stage_id, role_name, failed_deps)
+                results_by_role[role_name] = skip
+                await self._emit_done(stage_id, role_name, skip, skipped=True)
             else:
                 run_roles.append(role_name)
 
+        if run_roles:
+            await self._progress.spawned(
+                total=len(run_roles),
+                specs=run_roles,
+                stage=stage_id,
+                message=f"阶段 {stage_id}：并行启动 {len(run_roles)} 个子 agent（{', '.join(run_roles)}）",
+            )
         stage_tasks = [
-            _run_one(self._build_run(task_map[role_name], previous_outputs))
+            _run_one(role_name, self._build_run(task_map[role_name], previous_outputs))
             for role_name in run_roles
         ]
         stage_results = await asyncio.gather(*stage_tasks, return_exceptions=True)
         for role_name, result in zip(run_roles, stage_results, strict=True):
-            results_by_role[role_name] = self._coerce_result(stage_id, role_name, result)
+            results_by_role[role_name] = coerce_result(stage_id, role_name, result)
         return [results_by_role[role_name] for role_name in task_roles]
 
-    def _skip_result(self, stage_id: int, role_name: str, failed_deps: list[str]) -> SubAgentResult:
-        deps = "、".join(failed_deps)
-        return SubAgentResult(
+    async def _emit_done(
+        self, stage_id: int, role_name: str, result: SubAgentResult, *, skipped: bool = False
+    ) -> None:
+        self._done += 1
+        if skipped:
+            message = f"子 agent {role_name} 因上游失败被跳过（{self._done}/{self._total}）"
+        elif result.is_error:
+            message = f"子 agent {role_name} 执行失败（{self._done}/{self._total}）"
+        else:
+            message = f"子 agent {role_name} 已完成（{self._done}/{self._total}）"
+        await self._progress.agent_done(
             role=role_name,
-            stage_id=stage_id,
-            output=f"上游依赖 {deps} 失败，已跳过执行。",
-            is_error=True,
+            completed=self._done,
+            total=self._total,
+            stage=stage_id,
+            error=result.output if result.is_error and not skipped else "",
+            skipped=skipped,
+            message=message,
         )
 
     def _build_run(self, task: AgentTask, previous_outputs: dict[str, str]) -> IsolatedAgentRun:
@@ -139,46 +175,5 @@ class Orchestrator:
             max_iterations=max_iterations,
             dependency_outputs=dependency_outputs,
         )
-
-    def _coerce_result(
-        self,
-        stage_id: int,
-        role_name: str,
-        stage_result: SubAgentResult | Exception,
-    ) -> SubAgentResult:
-        if isinstance(stage_result, SubAgentResult):
-            return stage_result.model_copy(update={"stage_id": stage_id})
-        if isinstance(stage_result, AgentError):
-            output = f"[{stage_result.code}] {stage_result.message}"
-        else:
-            output = str(stage_result)
-        return SubAgentResult(role=role_name, stage_id=stage_id, output=output, is_error=True)
-
-    def _format_report(
-        self,
-        stages: list[ResolvedStage],
-        results: list[SubAgentResult],
-        skipped_roles: set[str],
-    ) -> str:
-        skipped_count = sum(1 for item in results if item.role in skipped_roles)
-        failed_count = sum(1 for item in results if item.is_error) - skipped_count
-        summary = f"多 Agent 协作完成，共 {len(stages)} 个阶段，{len(results)} 个任务。"
-        if failed_count:
-            summary = f"{summary} 其中 {failed_count} 个子任务失败。"
-        if skipped_count:
-            summary = f"{summary} {skipped_count} 个子任务因上游失败被跳过。"
-        sections = [summary]
-        for stage in stages:
-            role_line = ", ".join(stage.task_roles)
-            sections.append(f"\n--- 阶段 {stage.stage_id}: {role_line} ---")
-            for result in (item for item in results if item.stage_id == stage.stage_id):
-                if result.role in skipped_roles:
-                    status = "跳过(上游失败)"
-                else:
-                    status = "失败" if result.is_error else "完成"
-                sections.append(f"\n[{result.role}] [{status}]")
-                sections.append(result.output)
-        return "\n".join(sections)
-
 
 __all__ = ["Orchestrator", "OrchestrationError"]

@@ -48,6 +48,9 @@ class _BlockingLoop:
         self.entered = asyncio.Event()
         _BlockingLoop.created.append(self)
 
+    def on(self, handler: Any) -> None:
+        return None
+
     async def run(self, user_message: str) -> Any:
         self.entered.set()
         await asyncio.sleep(3600)

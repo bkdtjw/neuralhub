@@ -82,7 +82,9 @@ def register_builtin_tools(
         tools.append(create_bash_tool(workspace))
         if adapter is not None and not is_sub_agent and policy.enable_legacy_tools:
             loader = AgentDefinitionLoader(agents_dir)
-            spawner = SubAgentSpawner(adapter, registry, loader, default_model)
+            spawner = SubAgentSpawner(
+                adapter, registry, loader, default_model, progress_handler=event_handler
+            )
             lifecycle = SubAgentLifecycle(timeout=120.0)
             tools.append(create_dispatch_agent_tool(spawner, lifecycle))
             try:
@@ -101,6 +103,7 @@ def register_builtin_tools(
                             default_model=default_model,
                             agents_dir=agents_dir,
                         ),
+                        event_handler=event_handler,
                     )
                 )
 

@@ -34,6 +34,7 @@ class _ConcurrencyProbe:
         self,
         run: IsolatedAgentRun,
         runtime: IsolatedAgentRuntime,
+        on_event: object | None = None,
     ) -> SubAgentResult:
         self._active += 1
         self.peak = max(self.peak, self._active)

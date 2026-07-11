@@ -6,12 +6,13 @@ from pydantic import BaseModel, Field
 
 from backend.adapters.base import LLMAdapter
 from backend.common.errors import AgentError
-from backend.common.types import AgentConfig, ToolResult
+from backend.common.types import AgentConfig, AgentEventHandler, ToolResult
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.system_prompt import build_system_prompt
 
 from .agent_definition import AgentDefinitionLoader, AgentRole
+from .progress import SubAgentProgressEmitter
 
 
 class SpawnParams(BaseModel):
@@ -33,14 +34,18 @@ class SubAgentSpawner:
         parent_registry: ToolRegistry,
         definition_loader: AgentDefinitionLoader,
         default_model: str,
+        progress_handler: AgentEventHandler | None = None,
     ) -> None:
         self._adapter = adapter
         self._parent_registry = parent_registry
         self._definition_loader = definition_loader
         self._default_model = default_model
+        self._progress_handler = progress_handler
 
     async def spawn_and_run(self, params: SpawnParams) -> ToolResult:
         loop: AgentLoop | None = None
+        progress = SubAgentProgressEmitter(self._progress_handler, "dispatch")
+        label = params.role or "sub-agent"
         try:
             role = self._load_role(params.role)
             child_registry = self._build_child_registry(
@@ -56,15 +61,28 @@ class SubAgentSpawner:
                 adapter=self._adapter,
                 tool_registry=child_registry,
             )
+            loop.on(progress.child_observer(label))
+            await progress.spawned(total=1, specs=[label], message=f"派发子 agent {label} 处理子任务…")
             result = await loop.run(params.task)
+            await progress.agent_done(
+                role=label, completed=1, total=1, message=f"子 agent {label} 已完成（1/1）"
+            )
             return ToolResult(output=result.content.strip())
         except asyncio.CancelledError:
             if loop is not None:
                 loop.abort()
             raise
-        except AgentError:
+        except AgentError as exc:
+            await progress.agent_done(
+                role=label, completed=1, total=1, error=exc.message,
+                message=f"子 agent {label} 执行失败：{exc.message}",
+            )
             raise
         except Exception as exc:
+            await progress.agent_done(
+                role=label, completed=1, total=1, error=str(exc),
+                message=f"子 agent {label} 执行失败：{exc}",
+            )
             raise AgentError("SUB_AGENT_SPAWN_ERROR", str(exc)) from exc
 
     def _build_child_registry(self, parent_registry: ToolRegistry, allowed_tools: list[str]) -> ToolRegistry:

@@ -36,6 +36,8 @@ async def run_final_review_if_needed(
         deps.event_handler,
         "sub_agent_spawned",
         {
+            "source": "spawn",
+            "run_id": deps.parent_task_id,
             "total": len(review_prepared),
             "submitted": len(review_prepared),
             "reused": 0,

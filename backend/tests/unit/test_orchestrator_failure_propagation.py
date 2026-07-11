@@ -32,6 +32,7 @@ class _RecordingRunner:
         self,
         run: IsolatedAgentRun,
         runtime: IsolatedAgentRuntime,
+        on_event: object | None = None,
     ) -> SubAgentResult:
         role = run.task.role
         self.invoked.append(role)
