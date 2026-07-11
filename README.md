@@ -129,7 +129,7 @@ docker compose up -d --build
 curl http://127.0.0.1:8000/health/ready
 ```
 
-完整部署与运维（含 Loki 日志、Prometheus 观测栈）见 [DEPLOY.md](DEPLOY.md)。
+X/Twitter 账号与 Cookie、飞书机器人/自建应用、知识库 embedding、代理等**全部配置项**见 [docs/configuration.md](docs/configuration.md)；完整部署与运维（含 Loki 日志、Prometheus 观测栈）见 [DEPLOY.md](DEPLOY.md)。
 
 <details>
 <summary>本地开发（后端热重载 + 前端 dev server）</summary>
@@ -193,6 +193,7 @@ extension/    浏览器 Cookie 同步扩展
 | 文档 | 内容 |
 | --- | --- |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | 全模块梳理 |
+| [docs/configuration.md](docs/configuration.md) | 配置手册：X/Cookie、飞书、RAG、代理全项说明 |
 | [docs/x-api.md](docs/x-api.md) | X 舆情雷达 API 手册 |
 | [DEPLOY.md](DEPLOY.md) | 部署、观测、排障 |
 | [tasks/ARCHITECTURE.md](tasks/ARCHITECTURE.md) | 架构文档 |
