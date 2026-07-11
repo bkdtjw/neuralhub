@@ -25,7 +25,7 @@
 | 🔌 **多模型接入** | Anthropic / OpenAI / Ollama / 任意 OpenAI 兼容接口，运行时热切换 Provider |
 | 🧰 **工具系统** | `ToolRegistry` 统一注册，内置浏览器、X 搜索、飞书推送等；支持 **MCP 协议**外接工具 |
 | 🎭 **Skills / AgentSpec** | `skills/` 目录即插即用：AI 早报、代码审查、面试训练、金融查询… |
-| 🧑‍🤝‍🧑 **多 Agent 并行** | `spawn_agent` 经 Redis 队列分发到多 Worker，失败回传、超时回收、进度实时推 WS |
+| 🧑‍🤝‍🧑 **多 Agent 并行** | DAG 拓扑分层编排；Redis+PG 双写队列，SKIP LOCKED 防重、心跳租约自愈、checkpoint 断点续跑 |
 | ⏰ **任务系统** | 定时任务绑定 spec 自动执行（如每日 AI 早报），分布式锁防重复触发 |
 | 📚 **知识库 RAG** | pgvector 向量检索、多库硬隔离、文档幂等入库，Agent 可引用检索结果 |
 | 🪝 **事件钩子** | 订阅关键词 → LLM 提炼事件情报 → 飞书卡片推送，前端玻璃拟态管理页 |
@@ -49,7 +49,7 @@ Web 端完整对话体验：流式输出、工具调用过程可视化、子 age
 `skills/` 一个目录 = 一个开箱技能，含提示词、工具白名单、子 agent 编排。真实在跑的：**AI 早报**（每日自动搜集 → 精选 → 飞书推送）、**面试训练日报**（读本仓库源码出题 + LeetCode + 写入 Notion）、**代码审查**、**灵犀金融查询**。
 
 ### 🧑‍🤝‍🧑 多 Agent 并行
-`spawn_agent` 把子任务写入 Redis 队列，多 Worker 认领执行、结果回传主 agent 汇总；失败回传、全局等待超时、僵尸任务回收，进度事件全程推 WebSocket。
+**编排层**：子任务按 DAG 拓扑分层并发执行（`depends_on` 声明依赖、层内 gather 并发、依赖失败可阻断可放行），另有 LLM 动态波次编排（限最大波数防失控）。**执行层**：任务先落 PostgreSQL 再推 Redis 队列（双写），多 Worker 以 `SKIP LOCKED` 竞争认领防重复消费，执行期心跳续租、Worker 崩溃后过期租约自动回收，基于 checkpoint 断点续跑而非重跑。**隔离**：子 agent 使用白名单过滤的独立 ToolRegistry，readonly 权限降级（剥 Write、Bash 拦写命令），派生类工具强制剥离防递归爆炸；进度事件全程推 WebSocket。
 
 ### ⏰ 定时自动化
 任务绑定 `spec_id` 按计划自动执行，分布式锁防多 Worker 重复触发；早报、面试日报每天准点产出并推送飞书，无人值守。
