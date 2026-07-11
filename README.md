@@ -49,7 +49,7 @@ Web 端完整对话体验：流式输出、工具调用过程可视化、子 age
 `skills/` 一个目录 = 一个开箱技能，含提示词、工具白名单、子 agent 编排。真实在跑的：**AI 早报**（每日自动搜集 → 精选 → 飞书推送）、**面试训练日报**（读本仓库源码出题 + LeetCode + 写入 Notion）、**代码审查**、**灵犀金融查询**。
 
 ### 🧑‍🤝‍🧑 多 Agent 并行
-**编排层**：子任务按 DAG 拓扑分层并发执行（`depends_on` 声明依赖、层内 gather 并发、依赖失败可阻断可放行），另有 LLM 动态波次编排（限最大波数防失控）。**执行层**：任务先落 PostgreSQL 再推 Redis 队列（双写），多 Worker 以 `SKIP LOCKED` 竞争认领防重复消费，执行期心跳续租、Worker 崩溃后过期租约自动回收，基于 checkpoint 断点续跑而非重跑。**隔离**：子 agent 使用白名单过滤的独立 ToolRegistry，readonly 权限降级（剥 Write、Bash 拦写命令），派生类工具强制剥离防递归爆炸；进度事件全程推 WebSocket。
+**编排层**：子任务按 DAG 拓扑分层并发执行——`depends_on` 声明依赖、Kahn 分层、环检测拒绝、层内并发上限 5、依赖失败级联跳过下游。**执行层**：任务先落 PostgreSQL 再推 Redis 队列（双写），多 Worker 以 `SKIP LOCKED` 竞争认领防重复消费，执行期心跳续租、Worker 崩溃后过期租约自动回收，基于 checkpoint 断点续跑而非重跑。**隔离**：子 agent 使用白名单过滤的独立 ToolRegistry，readonly 权限降级（剥 Write、Bash 拦写命令），派生类工具强制剥离防递归爆炸；进度事件全程推 WebSocket。
 
 ### ⏰ 定时自动化
 任务绑定 `spec_id` 按计划自动执行，分布式锁防多 Worker 重复触发；早报、面试日报每天准点产出并推送飞书，无人值守。
