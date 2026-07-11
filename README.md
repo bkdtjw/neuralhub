@@ -13,12 +13,11 @@
 
 多模型 · 多入口 · 多 Agent 并行 · MCP 协议 · RAG 知识库 · 事件情报 · X 舆情监控
 
-
 </div>
 
 ---
 
-## ✨ 它能干什么
+## ✨ 一眼全景
 
 | 能力 | 说明 |
 | --- | --- |
@@ -34,6 +33,38 @@
 | 📊 **可观测性** | 结构化日志（trace_id 贯穿）、Prometheus 指标、前端 Logs / Metrics 页面 |
 
 > 实况口径：**66 个 HTTP 端点**，核心引擎 7 个子系统落地（`s01/s02/s04/s05/s06/s07/s13`，共 ~32k 行），另有 6 个规划位预留。
+
+## 🔍 功能导览
+
+### 💬 会话工作台
+Web 端完整对话体验：流式输出、工具调用过程可视化、子 agent 进度实时推送（WebSocket）；设置页热切换 Provider / 模型，不用重启服务。
+
+### 🤖 Agent 引擎
+消息循环驱动多轮工具调用；SecurityGate（HMAC 签名）拦截危险操作；长任务自动上下文压缩不爆窗。核心层零框架依赖，LLM 经注入的 adapter 调用——换模型不动引擎。
+
+### 🧰 工具系统 + MCP
+`ToolRegistry` 统一注册与按场景隔离过滤；内置浏览器自动化、X 搜索、飞书推送等工具；MCP 协议桥接外部工具服务器，自带重试与超时兜底。
+
+### 🎭 Skills 生态
+`skills/` 一个目录 = 一个开箱技能，含提示词、工具白名单、子 agent 编排。真实在跑的：**AI 早报**（每日自动搜集 → 精选 → 飞书推送）、**面试训练日报**（读本仓库源码出题 + LeetCode + 写入 Notion）、**代码审查**、**灵犀金融查询**。
+
+### 🧑‍🤝‍🧑 多 Agent 并行
+`spawn_agent` 把子任务写入 Redis 队列，多 Worker 认领执行、结果回传主 agent 汇总；失败回传、全局等待超时、僵尸任务回收，进度事件全程推 WebSocket。
+
+### ⏰ 定时自动化
+任务绑定 `spec_id` 按计划自动执行，分布式锁防多 Worker 重复触发；早报、面试日报每天准点产出并推送飞书，无人值守。
+
+### 📚 知识库（RAG）
+多知识库**硬隔离**，检索严格按库过滤绝不串库；文档入库 → 分块 → pgvector 向量化，同名文档幂等覆盖不堆积；Agent 对话可引用检索片段，前端 Knowledge 页全程管理。
+
+### 🪝 事件钩子
+给关键词装上"耳朵"：命中新事件后由 LLM 提炼要点、强相关性去噪，生成情报卡片推送飞书，历史可在 Hooks 页回看。
+
+### 📡 X 舆情雷达
+**搜**（结构化搜索 + 缓存）→ **比**（多词声量对比排行）→ **盯**（阈值监控自动飞书告警）→ **存**（舆情快照沉淀进知识库），全程频控闸门保护账号额度。API 用法详见 [docs/x-api.md](docs/x-api.md)。
+
+### 📊 可观测性
+结构化日志 `trace_id` / `session_id` / `worker_id` 全链路贯穿，前端日志搜索页；Prometheus 指标 + Metrics 页；`/health/live`、`/health/ready` 探针。
 
 ## 🗺️ 系统鸟瞰
 
@@ -90,36 +121,6 @@ flowchart LR
 | CLI `miniclaude` | REPL 交互 + `miniclaude run <spec_id>` 一次性执行 |
 | 飞书 | 普通消息走主 agent，`/spec_id` 斜杠命令直达 skill |
 | 定时任务 | 绑定 `spec_id` 按计划自动执行（AI 早报、面试日报都在跑） |
-
-## 📡 X 舆情雷达（REST API）
-
-对 X/Twitter 舆情的完整闭环：**搜 → 比 → 盯 → 存**。全部躲在功能开关后（`X_API_ENABLED` / `X_MONITOR_ENABLED`），带全局频控闸门（5s 最小间隔 + 每日额度），额度打满只影响新接口、不伤存量功能。
-
-```bash
-TOKEN="$AUTH_SECRET"
-
-# ① 搜：最近 7 天关键词推文，按热度排序（赞×1 + 转×2 + 浏览×0.01）
-curl -s "http://127.0.0.1:8000/api/x/searches?q=Claude+Code&sort=engagement" \
-  -H "Authorization: Bearer $TOKEN"
-
-# ② 比：最多 4 个词同场对比声量，谁火一目了然
-curl -s "http://127.0.0.1:8000/api/x/compare?q=claude,gpt,gemini" \
-  -H "Authorization: Bearer $TOKEN"
-
-# ③ 盯：建监控，出现 50 赞以上的推文自动发飞书卡片（同推文只报一次）
-curl -s -X POST "http://127.0.0.1:8000/api/x/monitors" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"query": "Claude Code", "interval_minutes": 60, "search_type": "Top", "threshold_likes": 50}'
-
-# ④ 存：舆情快照写入指定知识库（幂等覆盖，绝不写错库），供 Agent 检索引用
-curl -s -X POST "http://127.0.0.1:8000/api/x/exports" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"query": "Claude Code", "kb_id": "<你的专库id>"}'
-```
-
-## 🪝 事件钩子
-
-给关键词装上"耳朵"：命中新事件后由 LLM 提炼相关性与要点（强去噪），生成情报卡片推送飞书，历史可在前端 Hooks 页回看。与 X 监控的分工——**钩子做事件情报，监控做单推文阈值告警**。
 
 ## 🚀 快速开始
 
@@ -195,6 +196,7 @@ extension/    浏览器 Cookie 同步扩展
 | 文档 | 内容 |
 | --- | --- |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | 全模块梳理 |
+| [docs/x-api.md](docs/x-api.md) | X 舆情雷达 API 手册 |
 | [DEPLOY.md](DEPLOY.md) | 部署、观测、排障 |
 | [tasks/ARCHITECTURE.md](tasks/ARCHITECTURE.md) | 架构文档 |
 | [AGENTS.md](AGENTS.md) | 仓库内 agent 协作约束 |
