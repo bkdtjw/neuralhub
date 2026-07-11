@@ -12,7 +12,7 @@ from .plan_task_routing import PlanRoute, PlanTaskKind
 
 
 LIGHTWEIGHT_PLANNING_SYSTEM_PROMPT = """
-你是 Agent Studio 的轻量任务规划者。用户任务不是代码仓库改造时，
+你是 NeuralHub 的轻量任务规划者。用户任务不是代码仓库改造时，
 你要直接规划业务执行步骤，不要进行代码侦察、源码读取或仓库分析。
 
 必须输出纯 JSON，不要使用 markdown 代码块，不要添加解释文字。JSON 字段如下：

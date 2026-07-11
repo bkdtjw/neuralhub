@@ -11,7 +11,7 @@ from backend.common.types.message import Message
 from .plan_models import ExecutionPlan
 
 PLANNING_SYSTEM_PROMPT = """
-你是 Agent Studio 的 Plan & Execute 规划者。你的任务是把用户需求拆成可执行计划，
+你是 NeuralHub 的 Plan & Execute 规划者。你的任务是把用户需求拆成可执行计划，
 供后续执行器逐步完成。你只负责规划，不执行工具，不调用外部系统。
 
 必须输出纯 JSON，不要使用 markdown 代码块，不要添加解释文字。JSON 字段如下：

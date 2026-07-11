@@ -94,7 +94,7 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          placeholder={currentProvider && currentModel ? "向 Agent Studio 发送消息" : "先在设置中配置并启用 Provider"}
+          placeholder={currentProvider && currentModel ? "向 NeuralHub 发送消息" : "先在设置中配置并启用 Provider"}
           className="max-h-36 min-h-[64px] w-full resize-none bg-transparent text-[13px] leading-6 text-[var(--as-text)] outline-none placeholder:text-[var(--as-text-subtle)] disabled:cursor-not-allowed"
         />
         <div className="mt-3 flex items-center gap-3">

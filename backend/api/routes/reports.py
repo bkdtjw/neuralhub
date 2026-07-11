@@ -97,7 +97,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 <div class="container">
 {body}
-<div class="footer">Agent Studio · {generated_at}</div>
+<div class="footer">NeuralHub · {generated_at}</div>
 </div>
 </body>
 </html>"""

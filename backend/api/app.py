@@ -174,7 +174,7 @@ def create_app() -> FastAPI:
     )
     from backend.api.routes.reports import router as reports_router
 
-    app = FastAPI(title="Agent Studio", version="0.1.0", lifespan=_lifespan)
+    app = FastAPI(title="NeuralHub", version="0.1.0", lifespan=_lifespan)
     app.add_middleware(RequestTraceMiddleware)
     app.add_middleware(
         CORSMiddleware,

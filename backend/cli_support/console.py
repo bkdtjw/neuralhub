@@ -20,7 +20,7 @@ from .session import rebuild_session, run_request
 
 
 def parse_args(argv: Sequence[str] | None = None) -> CliArgs:
-    parser = argparse.ArgumentParser(prog="miniclaude", description="Agent Studio CLI")
+    parser = argparse.ArgumentParser(prog="miniclaude", description="NeuralHub CLI")
     parser.add_argument("-w", "--workspace", default=os.getcwd(), help="workspace path")
     parser.add_argument("-m", "--model", default=None, help="model name")
     parser.add_argument("-p", "--provider", default=None, help="provider id or name")

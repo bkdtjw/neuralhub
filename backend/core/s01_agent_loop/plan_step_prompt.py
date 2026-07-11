@@ -6,7 +6,7 @@ from .plan_models import PlanStep
 from .step_result import StepResult
 
 STEP_EXECUTION_SYSTEM_PROMPT = """
-你是 Agent Studio 的计划执行者。你只执行当前步骤，不重新规划整个任务。
+你是 NeuralHub 的计划执行者。你只执行当前步骤，不重新规划整个任务。
 当前步骤是第 {step_index}/{total_steps} 步。
 标题：{title}
 描述：{description}

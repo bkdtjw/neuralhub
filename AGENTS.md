@@ -1,4 +1,4 @@
-# Agent Studio - 项目约束
+# NeuralHub - 项目约束
 
 ## 代码规范
 - Python 3.12+，全面使用 type hints

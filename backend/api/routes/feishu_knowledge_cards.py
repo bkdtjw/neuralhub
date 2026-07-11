@@ -59,7 +59,7 @@ def build_kb_switch_card(
         "config": {"wide_screen_mode": True},
         "header": {
             "template": "blue",
-            "title": {"tag": "plain_text", "content": "Agent Studio 知识库"},
+            "title": {"tag": "plain_text", "content": "NeuralHub 知识库"},
         },
         "elements": elements,
     }

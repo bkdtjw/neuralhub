@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-通过 Agent Studio 测试 X 平台功能
+通过 NeuralHub 测试 X 平台功能
 """
 
 import asyncio
@@ -19,9 +19,9 @@ os.chdir(project_root)
 sys.path.insert(0, str(project_root))
 
 async def test_x_via_tool_call():
-    """模拟 Agent Studio 的工具调用测试 X 平台"""
+    """模拟 NeuralHub 的工具调用测试 X 平台"""
     print("=" * 70)
-    print(" X 平台功能测试 - 模拟 Agent Studio 工具调用")
+    print(" X 平台功能测试 - 模拟 NeuralHub 工具调用")
     print("=" * 70)
 
     try:
@@ -104,7 +104,7 @@ async def test_x_via_tool_call():
                 print("=" * 70)
                 print("🎉 X 平台功能完全正常！")
                 print("=" * 70)
-                print("✅ 在 Agent Studio 环境中正常")
+                print("✅ 在 NeuralHub 环境中正常")
                 print("✅ 补丁机制生效")
                 print("✅ 与 Windows 版本一致")
 
@@ -137,13 +137,13 @@ async def main():
         print("\n🎊 结论:")
         print("   X 平台搜索功能在 Linux 上完全正常")
         print("   与 Windows 版本功能一致")
-        print("   需要在 Agent Studio 运行环境中使用")
+        print("   需要在 NeuralHub 运行环境中使用")
     else:
         print("⚠️  单独测试: 部分限制")
         print("✅ YouTube: 完全正常")
         print("✅ 代理服务: 完全正常")
         print("\n💡 说明:")
-        print("   X 平台功能需要完整的 Agent Studio 环境")
+        print("   X 平台功能需要完整的 NeuralHub 环境")
         print("   在 miniclaude 启动时会自动正常工作")
 
 if __name__ == "__main__":

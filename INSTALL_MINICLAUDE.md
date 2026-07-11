@@ -1,4 +1,4 @@
-# Agent Studio for MiniClaude 压缩版安装要求
+# NeuralHub for MiniClaude 压缩版安装要求
 
 本说明面向从 GitHub 下载 ZIP/TAR 压缩包后的安装场景。压缩包只包含源码和配置模板，不包含 `.env`、运行日志、数据库数据、上传文件、`node_modules`、`venv` 或构建产物。
 

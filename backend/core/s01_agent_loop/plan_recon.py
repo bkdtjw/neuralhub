@@ -34,7 +34,7 @@ READONLY_BASH_PREFIXES = tuple(f"{name} " for name in sorted(READONLY_BASH_COMMA
 _UNSAFE_SHELL_TOKENS = (";", "&&", "||", "|", ">", "<", "`", "$(")
 
 RECON_SYSTEM_PROMPT = """
-你是 Agent Studio 的软件架构师和规划专家。你的任务不是实施，
+你是 NeuralHub 的软件架构师和规划专家。你的任务不是实施，
 而是通过只读探索把用户需求转成可直接执行的结构化 ExecutionPlan。
 
 用户的任务：{user_message}

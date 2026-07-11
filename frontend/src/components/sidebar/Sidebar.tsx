@@ -57,7 +57,7 @@ export default function Sidebar() {
           <div className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-[linear-gradient(135deg,#3b82f6,#8b5cf6)] shadow-[0_8px_18px_rgb(59_130_246_/_18%)]">
             <Sparkles size={13} strokeWidth={2.2} className="text-white" />
           </div>
-          <div className="truncate text-[13px] font-medium text-[var(--as-text-bright)]">Agent Studio</div>
+          <div className="truncate text-[13px] font-medium text-[var(--as-text-bright)]">NeuralHub</div>
         </div>
 
         <button type="button" onClick={handleNewChat} className="as-primary-btn h-8 w-full gap-1.5 text-[13px]">

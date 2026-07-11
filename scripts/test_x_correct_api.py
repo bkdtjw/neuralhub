@@ -99,7 +99,7 @@ async def test_x_platform_final():
                 print("✅ 用户信息: 正常")
                 print("✅ 时间线: 正常")
                 print("✅ Cookies: 有效")
-                print("\n🚀 您现在可以使用 Agent Studio 的 X 平台功能了！")
+                print("\n🚀 您现在可以使用 NeuralHub 的 X 平台功能了！")
 
                 return True
 
@@ -158,7 +158,7 @@ async def main():
         print("\n💡 当前可用功能:")
         print("   - YouTube 视频搜索和字幕提取")
         print("   - 网络代理服务")
-        print("   - 其他 Agent Studio 功能")
+        print("   - 其他 NeuralHub 功能")
 
 if __name__ == "__main__":
     try:

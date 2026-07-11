@@ -1,10 +1,10 @@
-# Agent Studio 架构文档
+# NeuralHub 架构文档
 
 ## 1. 项目概览
 
 ### 1.1 项目简介
 
-**Agent Studio** 是一个自建 AI Coding Agent 平台，提供 Web 界面、OpenAI 兼容 API 和完整的 Agent 引擎。支持多 LLM 提供商、工具调用、子 Agent 派生、任务编排等高级功能。
+**NeuralHub** 是一个自建 AI Coding Agent 平台，提供 Web 界面、OpenAI 兼容 API 和完整的 Agent 引擎。支持多 LLM 提供商、工具调用、子 Agent 派生、任务编排等高级功能。
 
 ### 1.2 核心功能
 

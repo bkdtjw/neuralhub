@@ -1,4 +1,6 @@
-# Agent Studio
+# NeuralHub
+
+> 曾用名 Agent Studio（2026-07 更名）。历史审计/功能报告类文档中的旧称保留原样。
 自建 AI Coding Agent 平台，包含 Web UI、OpenAI 兼容 API、CLI、飞书入口、定时任务，以及基于 Redis 的跨 Worker 子 agent 并行执行。
 
 ## 做什么
