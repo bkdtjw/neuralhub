@@ -39,7 +39,20 @@ export default function Session() {
   const providers = useAgentStore((state) => state.providers);
   const workspace = useAgentStore((state) => state.workspace);
 
-  const [panelOpen, setPanelOpen] = useState(false);
+  // 面板两种打开方式:hover 按钮=临时预览(划走即收),点击=固定打开。
+  const [panelPinned, setPanelPinned] = useState(false);
+  const [panelPeek, setPanelPeek] = useState(false);
+  const peekTimer = useRef<number | null>(null);
+  const openPeek = useCallback(() => {
+    if (peekTimer.current) window.clearTimeout(peekTimer.current);
+    setPanelPeek(true);
+  }, []);
+  const closePeek = useCallback(() => {
+    if (peekTimer.current) window.clearTimeout(peekTimer.current);
+    peekTimer.current = window.setTimeout(() => setPanelPeek(false), 200);
+  }, []);
+  const panelVisible = panelPinned || panelPeek;
+
   const subAgentRuns = useSubAgentStore((state) => state.runs);
   const lastRunId = useSubAgentStore((state) => state.lastRunId);
   const { runCount, activeAgentCount } = useMemo(() => {
@@ -51,8 +64,8 @@ export default function Session() {
   }, [subAgentRuns, sessionId]);
 
   useEffect(() => {
-    // 首次出现本会话的子 agent 运行时自动展开面板，让编排过程"开箱可见"。
-    if (lastRunId.startsWith(`${sessionId}:`)) setPanelOpen(true);
+    // 首次出现本会话的子 agent 运行时自动固定面板，让编排过程"开箱可见"。
+    if (lastRunId.startsWith(`${sessionId}:`)) setPanelPinned(true);
   }, [lastRunId, sessionId]);
 
   const activeSession = sessions.find((item) => item.id === sessionId) ?? sessions.find((item) => item.id === currentSessionId);
@@ -96,13 +109,15 @@ export default function Session() {
         <div className="flex justify-self-end gap-2">
           <button
             type="button"
-            onClick={() => setPanelOpen((value) => !value)}
+            onClick={() => setPanelPinned((value) => !value)}
+            onMouseEnter={openPeek}
+            onMouseLeave={closePeek}
             className={`relative flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
-              panelOpen
+              panelPinned
                 ? "border-[var(--as-accent)] bg-[var(--as-surface)] text-[var(--as-accent-soft)]"
                 : "border-[var(--as-border-strong)] bg-[var(--as-surface)] text-[var(--as-text-secondary)] hover:border-[var(--as-accent)] hover:text-[var(--as-accent-soft)]"
             }`}
-            title="子 Agent 面板"
+            title="子 Agent 面板（悬停预览，点击固定）"
           >
             <Bot size={13} />
             子 Agent
@@ -142,7 +157,21 @@ export default function Session() {
             <InputBar status={status} onSend={(text, options) => void sendInSession(text, options)} onAbort={abortRun} compact />
           </div>
         </div>
-        {panelOpen ? <SubAgentPanel sessionId={sessionId} onClose={() => setPanelOpen(false)} /> : null}
+        <div
+          onMouseEnter={panelPinned ? undefined : openPeek}
+          onMouseLeave={panelPinned ? undefined : closePeek}
+          className={`min-h-0 shrink-0 overflow-hidden transition-all duration-200 ease-out ${
+            panelVisible ? "w-[320px] opacity-100" : "w-0 opacity-0"
+          }`}
+        >
+          <SubAgentPanel
+            sessionId={sessionId}
+            onClose={() => {
+              setPanelPinned(false);
+              setPanelPeek(false);
+            }}
+          />
+        </div>
       </div>
     </div>
   );
