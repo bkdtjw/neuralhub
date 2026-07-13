@@ -206,7 +206,9 @@ async def use_fake_redis(monkeypatch: Any, url: str = "redis://fake:6379/0") -> 
 
     fake = FakeRedisConnection()
 
-    async def _create_redis_client(_: str) -> tuple[FakeRedisPool, FakeAsyncRedis]:
+    # init_redis 会调两次（命令池 + pubsub 池），复用同一个 fake 客户端，
+    # 模拟同一台 Redis server 被两个池访问，保住 publish→subscribe round-trip 语义。
+    async def _create_redis_client(_: str, __: int) -> tuple[FakeRedisPool, FakeAsyncRedis]:
         return fake.pool, fake.client
 
     monkeypatch.setattr(redis_client, "_create_redis_client", _create_redis_client)
