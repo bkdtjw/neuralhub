@@ -140,6 +140,7 @@ def parse_response(data: dict[str, Any]) -> LLMResponse:
             prompt_tokens=usage.get("input_tokens", 0),
             completion_tokens=usage.get("output_tokens", 0),
             cached_prompt_tokens=usage.get("cache_read_input_tokens", 0),
+            cache_creation_prompt_tokens=usage.get("cache_creation_input_tokens", 0),
         ),
         provider_metadata=provider_metadata,
     )

@@ -64,8 +64,9 @@ class Message(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    # "usage" carries {prompt_tokens, completion_tokens, cached_prompt_tokens};
-    # emitted mid-stream so streaming responses can report token usage.
+    # "usage" carries {prompt_tokens, completion_tokens, cached_prompt_tokens,
+    # cache_creation_prompt_tokens}; emitted mid-stream so streaming responses
+    # can report token usage.
     type: Literal["text", "reasoning", "tool_call", "tool_result", "done", "usage"]
     data: Any = None
 
@@ -81,7 +82,12 @@ def merge_usage(acc: dict[str, Any], data: Any) -> None:
     """
     if not isinstance(data, dict):
         return
-    for key in ("prompt_tokens", "completion_tokens", "cached_prompt_tokens"):
+    for key in (
+        "prompt_tokens",
+        "completion_tokens",
+        "cached_prompt_tokens",
+        "cache_creation_prompt_tokens",
+    ):
         value = data.get(key)
         if value:
             acc[key] = int(value)

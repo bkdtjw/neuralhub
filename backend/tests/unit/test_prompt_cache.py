@@ -86,6 +86,8 @@ def test_openai_parse_response_records_cached_prompt_tokens() -> None:
         }
     )
     assert response.usage.cached_prompt_tokens == 1920
+    # 未命中输入口径：OpenAI 的 prompt_tokens 含 cached_tokens，入账前扣除（2006-1920=86）。
+    assert response.usage.prompt_tokens == 86
 
 
 def test_openai_parse_response_preserves_object_tool_arguments() -> None:

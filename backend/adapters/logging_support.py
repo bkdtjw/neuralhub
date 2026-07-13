@@ -55,10 +55,12 @@ def log_llm_request_end(
         payload["prompt_tokens"] = response.usage.prompt_tokens
         payload["completion_tokens"] = response.usage.completion_tokens
         payload["cached_prompt_tokens"] = response.usage.cached_prompt_tokens
+        payload["cache_creation_prompt_tokens"] = response.usage.cache_creation_prompt_tokens
         tokens = {
             "prompt": response.usage.prompt_tokens,
             "completion": response.usage.completion_tokens,
             "cached_prompt": response.usage.cached_prompt_tokens,
+            "cache_creation_prompt": response.usage.cache_creation_prompt_tokens,
         }
     observe_llm_request(provider, model, request_type, "success", duration_seconds, tokens=tokens)
     record_latency_sample_nowait("llm_request", duration_ms)
@@ -148,6 +150,8 @@ async def incr_llm_success_usage(usage: LLMUsage | None) -> None:
     await incr("llm_completion_tokens", usage.completion_tokens)
     if usage.cached_prompt_tokens:
         await incr("llm_cached_prompt_tokens", usage.cached_prompt_tokens)
+    if usage.cache_creation_prompt_tokens:
+        await incr("llm_cache_creation_tokens", usage.cache_creation_prompt_tokens)
 
 
 async def incr_llm_error() -> None:

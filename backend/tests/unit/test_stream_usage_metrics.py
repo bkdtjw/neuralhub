@@ -21,14 +21,15 @@ def test_capture_stream_usage_openai_final_chunk() -> None:
         },
     })
     capture_stream_usage(raw, holder)
-    assert holder == {"prompt": 120, "completion": 45, "cached": 30}
+    # 未命中输入口径：prompt 已扣除 cached（120-30=90）。
+    assert holder == {"prompt": 90, "completion": 45, "cached": 30}
 
 
 def test_capture_stream_usage_kimi_style_cached_tokens() -> None:
     holder: dict[str, int] = {}
     raw = json.dumps({"usage": {"prompt_tokens": 10, "completion_tokens": 2, "cached_tokens": 6}})
     capture_stream_usage(raw, holder)
-    assert holder == {"prompt": 10, "completion": 2, "cached": 6}
+    assert holder == {"prompt": 4, "completion": 2, "cached": 6}
 
 
 def test_capture_stream_usage_ignores_invalid_payload() -> None:
@@ -40,11 +41,11 @@ def test_capture_stream_usage_ignores_invalid_payload() -> None:
 
 def test_capture_anthropic_usage_from_start_and_delta() -> None:
     holder: dict[str, int] = {}
-    start = json.dumps({"type": "message_start", "message": {"usage": {"input_tokens": 88, "cache_read_input_tokens": 40}}})
+    start = json.dumps({"type": "message_start", "message": {"usage": {"input_tokens": 88, "cache_read_input_tokens": 40, "cache_creation_input_tokens": 25}}})
     delta = json.dumps({"type": "message_delta", "usage": {"output_tokens": 17}})
     _capture_anthropic_usage(start, holder)
     _capture_anthropic_usage(delta, holder)
-    assert holder == {"prompt": 88, "cached": 40, "completion": 17}
+    assert holder == {"prompt": 88, "cached": 40, "cache_creation": 25, "completion": 17}
 
 
 @pytest.mark.asyncio
@@ -56,12 +57,13 @@ async def test_incr_llm_success_usage_records_token_metrics(monkeypatch: pytest.
 
     monkeypatch.setattr(logging_support, "incr", fake_incr)
     await logging_support.incr_llm_success_usage(
-        LLMUsage(prompt_tokens=100, completion_tokens=20, cached_prompt_tokens=5)
+        LLMUsage(prompt_tokens=100, completion_tokens=20, cached_prompt_tokens=5, cache_creation_prompt_tokens=7)
     )
     assert ("llm_calls", 1) in calls
     assert ("llm_prompt_tokens", 100) in calls
     assert ("llm_completion_tokens", 20) in calls
     assert ("llm_cached_prompt_tokens", 5) in calls
+    assert ("llm_cache_creation_tokens", 7) in calls
 
 
 @pytest.mark.asyncio

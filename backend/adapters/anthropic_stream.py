@@ -115,6 +115,7 @@ def _message_start_usage(data: dict[str, Any]) -> StreamChunk | None:
         int(usage.get("input_tokens", 0) or 0),
         0,
         int(usage.get("cache_read_input_tokens", 0) or 0),
+        int(usage.get("cache_creation_input_tokens", 0) or 0),
     )
 
 
@@ -129,22 +130,29 @@ def _message_delta_usage(data: dict[str, Any]) -> StreamChunk | None:
         int(usage.get("input_tokens", 0) or 0),
         int(usage.get("output_tokens", 0) or 0),
         int(usage.get("cache_read_input_tokens", 0) or 0),
+        int(usage.get("cache_creation_input_tokens", 0) or 0),
     )
 
 
-def _usage_chunk(prompt: int, completion: int, cached: int) -> StreamChunk:
+def _usage_chunk(prompt: int, completion: int, cached: int, cache_creation: int = 0) -> StreamChunk:
     return StreamChunk(
         type="usage",
         data={
             "prompt_tokens": prompt,
             "completion_tokens": completion,
             "cached_prompt_tokens": cached,
+            "cache_creation_prompt_tokens": cache_creation,
         },
     )
 
 
 def new_usage_acc() -> dict[str, int]:
-    return {"prompt_tokens": 0, "completion_tokens": 0, "cached_prompt_tokens": 0}
+    return {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "cache_creation_prompt_tokens": 0,
+    }
 
 
 def fold_usage(acc: dict[str, int], chunk: StreamChunk) -> None:

@@ -47,6 +47,9 @@ def _capture_anthropic_usage(raw: str, holder: dict[str, int]) -> None:
     cached = usage.get("cache_read_input_tokens")
     if isinstance(cached, int) and cached > 0:
         holder["cached"] = cached
+    creation = usage.get("cache_creation_input_tokens")
+    if isinstance(creation, int) and creation > 0:
+        holder["cache_creation"] = creation
 
 
 def _stream_usage(holder: dict[str, int]) -> LLMUsage | None:
@@ -56,6 +59,7 @@ def _stream_usage(holder: dict[str, int]) -> LLMUsage | None:
         prompt_tokens=holder.get("prompt", 0),
         completion_tokens=holder.get("completion", 0),
         cached_prompt_tokens=holder.get("cached", 0),
+        cache_creation_prompt_tokens=holder.get("cache_creation", 0),
     )
 
 logger = adapter_logger("anthropic_adapter")

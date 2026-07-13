@@ -55,14 +55,42 @@ def test_anthropic_message_start_yields_prompt_and_cached_only() -> None:
     chunk = anthropic_parse("message_start", raw, "anthropic")
     assert chunk is not None and chunk.type == "usage"
     # output_tokens on message_start is the seed (~2) value and must be dropped.
-    assert chunk.data == {"prompt_tokens": 120, "completion_tokens": 0, "cached_prompt_tokens": 40}
+    assert chunk.data == {
+        "prompt_tokens": 120,
+        "completion_tokens": 0,
+        "cached_prompt_tokens": 40,
+        "cache_creation_prompt_tokens": 0,
+    }
+
+
+def test_anthropic_message_start_carries_cache_creation_tokens() -> None:
+    raw = json.dumps(
+        {
+            "type": "message_start",
+            "message": {"usage": {"input_tokens": 20, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 900, "output_tokens": 1}},
+        }
+    )
+    chunk = anthropic_parse("message_start", raw, "anthropic")
+    assert chunk is not None and chunk.type == "usage"
+    # 首写缓存的成本单独入账，不混进 prompt/cached，命中率分母才完整。
+    assert chunk.data == {
+        "prompt_tokens": 20,
+        "completion_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "cache_creation_prompt_tokens": 900,
+    }
 
 
 def test_anthropic_message_delta_yields_completion_only() -> None:
     raw = json.dumps({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 256}})
     chunk = anthropic_parse("message_delta", raw, "anthropic")
     assert chunk is not None and chunk.type == "usage"
-    assert chunk.data == {"prompt_tokens": 0, "completion_tokens": 256, "cached_prompt_tokens": 0}
+    assert chunk.data == {
+        "prompt_tokens": 0,
+        "completion_tokens": 256,
+        "cached_prompt_tokens": 0,
+        "cache_creation_prompt_tokens": 0,
+    }
 
 
 def test_anthropic_usage_prompt_from_start_completion_from_delta_not_summed() -> None:
@@ -96,7 +124,12 @@ def test_anthropic_message_delta_carries_kimi_cache_fields() -> None:
     )
     chunk = anthropic_parse("message_delta", raw, "anthropic")
     assert chunk is not None and chunk.type == "usage"
-    assert chunk.data == {"prompt_tokens": 1, "completion_tokens": 20, "cached_prompt_tokens": 6761}
+    assert chunk.data == {
+        "prompt_tokens": 1,
+        "completion_tokens": 20,
+        "cached_prompt_tokens": 6761,
+        "cache_creation_prompt_tokens": 0,
+    }
 
 
 def test_anthropic_usage_kimi_delta_overrides_start_full_count() -> None:
@@ -131,7 +164,8 @@ def test_openai_trailing_usage_frame_parsed() -> None:
     )
     usage = [c for c in openai_parse(raw, {}) if c.type == "usage"]
     assert len(usage) == 1
-    assert usage[0].data == {"prompt_tokens": 90, "completion_tokens": 210, "cached_prompt_tokens": 30}
+    # OpenAI 的 prompt_tokens 含 cached_tokens，统一"未命中输入"口径后扣除：90-30=60。
+    assert usage[0].data == {"prompt_tokens": 60, "completion_tokens": 210, "cached_prompt_tokens": 30}
 
 
 def test_openai_content_frame_emits_no_usage_chunk() -> None:
@@ -222,7 +256,7 @@ class _StubLoop:
 
 async def test_complete_with_stream_accumulates_usage_into_response() -> None:
     chunks = [
-        StreamChunk(type="usage", data={"prompt_tokens": 120, "completion_tokens": 0, "cached_prompt_tokens": 40}),
+        StreamChunk(type="usage", data={"prompt_tokens": 120, "completion_tokens": 0, "cached_prompt_tokens": 40, "cache_creation_prompt_tokens": 15}),
         StreamChunk(type="text", data="hi"),
         StreamChunk(type="usage", data={"prompt_tokens": 0, "completion_tokens": 256, "cached_prompt_tokens": 0}),
         StreamChunk(type="done"),
@@ -232,6 +266,7 @@ async def test_complete_with_stream_accumulates_usage_into_response() -> None:
     assert response.usage.prompt_tokens == 120
     assert response.usage.completion_tokens == 256
     assert response.usage.cached_prompt_tokens == 40
+    assert response.usage.cache_creation_prompt_tokens == 15
 
 
 # --- integration: real streaming bodies over a socket (construction a) ------
@@ -291,7 +326,8 @@ async def test_openai_stream_yields_usage_chunk_over_real_sse() -> None:
         chunks = [c async for c in adapter.stream(_request())]
     usage = [c for c in chunks if c.type == "usage"]
     assert len(usage) == 1
-    assert usage[0].data == {"prompt_tokens": 11, "completion_tokens": 5, "cached_prompt_tokens": 3}
+    # 未命中输入口径：11 - 3(cached) = 8。
+    assert usage[0].data == {"prompt_tokens": 8, "completion_tokens": 5, "cached_prompt_tokens": 3}
     assert any(c.type == "text" and c.data == "Hello" for c in chunks)
 
 

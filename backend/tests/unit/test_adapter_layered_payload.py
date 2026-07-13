@@ -111,11 +111,15 @@ def test_anthropic_parse_response_records_cache_read_tokens() -> None:
                 "input_tokens": 100,
                 "output_tokens": 5,
                 "cache_read_input_tokens": 80,
+                "cache_creation_input_tokens": 30,
             },
         }
     )
 
     assert response.usage.cached_prompt_tokens == 80
+    assert response.usage.cache_creation_prompt_tokens == 30
+    # Anthropic 的 input_tokens 天然不含 cache_read/cache_creation，不做扣减。
+    assert response.usage.prompt_tokens == 100
 
 
 def test_anthropic_stream_parser_buffers_tool_input_json_delta() -> None:

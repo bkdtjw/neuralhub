@@ -48,6 +48,9 @@ def capture_stream_usage(raw: str, holder: dict[str, int]) -> None:
         cached = usage.get("cached_tokens")
     if isinstance(cached, (int, float)) and cached > 0:
         holder["cached"] = int(cached)
+        if "prompt" in holder:
+            # 统一"未命中输入"口径：OpenAI 的 prompt_tokens 含 cached_tokens，扣除。
+            holder["prompt"] = max(holder["prompt"] - int(cached), 0)
 
 
 async def stream_response(adapter: Any, request: LLMRequest) -> AsyncIterator[StreamChunk]:

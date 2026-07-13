@@ -125,7 +125,8 @@ def parse_response(data: dict[str, Any]) -> LLMResponse:
         content=message.get("content", "") or "",
         tool_calls=tool_calls,
         usage=LLMUsage(
-            prompt_tokens=usage.get("prompt_tokens", 0),
+            # 统一"未命中输入"口径：OpenAI 的 prompt_tokens 含 cached_tokens，扣除后入账。
+            prompt_tokens=max(int(usage.get("prompt_tokens", 0) or 0) - int(cached_tokens or 0), 0),
             completion_tokens=usage.get("completion_tokens", 0),
             cached_prompt_tokens=cached_tokens,
         ),

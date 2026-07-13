@@ -52,9 +52,12 @@ class LLMRequest(BaseModel):
 
 
 class LLMUsage(BaseModel):
+    # prompt_tokens 统一为"未走缓存的输入"：Anthropic 的 input_tokens 天然不含
+    # cache_read/cache_creation；OpenAI 的 prompt_tokens 含 cached_tokens，解析时扣除。
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_prompt_tokens: int = 0
+    cache_creation_prompt_tokens: int = 0
 
 
 class LLMResponse(BaseModel):

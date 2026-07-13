@@ -19,12 +19,15 @@ def usage_stream_chunk(data: dict[str, Any]) -> StreamChunk | None:
         return None
     details = usage.get("prompt_tokens_details")
     cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
+    cached_int = int(cached or 0)
+    # 统一"未命中输入"口径：OpenAI 的 prompt_tokens 含 cached_tokens，而
+    # Anthropic 的 input_tokens 不含——此处扣除，命中率分母才不重复计缓存部分。
     return StreamChunk(
         type="usage",
         data={
-            "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+            "prompt_tokens": max(int(usage.get("prompt_tokens", 0) or 0) - cached_int, 0),
             "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
-            "cached_prompt_tokens": int(cached or 0),
+            "cached_prompt_tokens": cached_int,
         },
     )
 

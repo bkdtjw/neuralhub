@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import CacheHitTrend from "@/components/observability/CacheHitTrend";
 import MetricCard from "@/components/observability/MetricCard";
 import MetricsTrend from "@/components/observability/MetricsTrend";
 import { api } from "@/lib/api-client";
@@ -26,6 +27,7 @@ const emptySummary = (days: number): MetricsSummary => ({
     agent_runs: { total: 0, daily: {} },
     feishu_messages: { total: 0, daily: {} },
     feishu_replies: { total: 0, daily: {} },
+    llm_cache_creation_tokens: { total: 0, daily: {} },
     llm_calls: { total: 0, daily: {} },
     llm_cached_prompt_tokens: { total: 0, daily: {} },
     llm_completion_tokens: { total: 0, daily: {} },
@@ -86,6 +88,16 @@ export default function Metrics() {
   const labels = useMemo(() => Object.keys(summary.metrics.llm_calls.daily), [summary]);
   const llmCalls = labels.map((label) => summary.metrics.llm_calls.daily[label] ?? 0);
   const agentRuns = labels.map((label) => summary.metrics.agent_runs.daily[label] ?? 0);
+  // 缓存命中率口径：命中 = cache_read；未命中 = 未走缓存的输入 + 首写缓存(cache_creation)。
+  const cacheHits = labels.map((label) => summary.metrics.llm_cached_prompt_tokens.daily[label] ?? 0);
+  const cacheMisses = labels.map(
+    (label) =>
+      (summary.metrics.llm_prompt_tokens.daily[label] ?? 0) +
+      (summary.metrics.llm_cache_creation_tokens?.daily?.[label] ?? 0),
+  );
+  const cacheHitTotal = summary.metrics.llm_cached_prompt_tokens.total;
+  const cacheInputTotal =
+    cacheHitTotal + summary.metrics.llm_prompt_tokens.total + (summary.metrics.llm_cache_creation_tokens?.total ?? 0);
 
   const cards: MetricCardData[] = [
     { title: "Agent 执行", value: summary.metrics.agent_runs.total, note: `最近 ${days} 天总执行次数` },
@@ -93,6 +105,7 @@ export default function Metrics() {
     { title: "工具调用", value: summary.metrics.tool_calls.total, note: `错误 ${summary.metrics.tool_errors.total}`, tone: summary.metrics.tool_errors.total > 0 ? "danger" : "default" },
     { title: "定时任务", value: summary.metrics.task_triggers.total, note: `成功 ${summary.metrics.task_successes.total} / 失败 ${summary.metrics.task_failures.total}`, tone: summary.metrics.task_failures.total > 0 ? "danger" : "default" },
     { title: "Token 用量", value: `${formatCompact(summary.metrics.llm_prompt_tokens.total)}/${formatCompact(summary.metrics.llm_completion_tokens.total)}`, note: "输入 / 输出" },
+    { title: "缓存命中率", value: cacheInputTotal > 0 ? `${Math.round((cacheHitTotal / cacheInputTotal) * 100)}%` : "—", note: `命中 ${formatCompact(cacheHitTotal)} / 输入 ${formatCompact(cacheInputTotal)}` },
     { title: "飞书消息", value: summary.metrics.feishu_messages.total, note: `回复 ${summary.metrics.feishu_replies.total}` },
   ];
   const latencyCards = Object.entries(latency.latencies).map(([key, item]) => ({
@@ -152,6 +165,12 @@ export default function Metrics() {
           <div className="h-[300px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" />
         ) : loaded ? (
           <MetricsTrend labels={labels} agentRuns={agentRuns} llmCalls={llmCalls} />
+        ) : null}
+
+        {loading ? (
+          <div className="h-[300px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" />
+        ) : loaded ? (
+          <CacheHitTrend labels={labels} hitTokens={cacheHits} missTokens={cacheMisses} />
         ) : null}
 
         {!loading && loaded && latencyCards.length ? (
