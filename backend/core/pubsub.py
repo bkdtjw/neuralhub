@@ -6,7 +6,7 @@ from typing import Any
 
 from backend.common.errors import AgentError
 from backend.common.logging import get_logger
-from backend.config import get_redis
+from backend.config import get_redis, get_redis_pubsub
 
 logger = get_logger(component="pubsub")
 
@@ -43,7 +43,8 @@ class Subscriber:
     async def subscribe(self, channel: str) -> None:
         try:
             if self._pubsub is None:
-                self._pubsub = _require_redis().pubsub()
+                # 订阅走独立 pubsub 池：连接按 WS 会话生命周期长期占用，不与 publish 抢命令池。
+                self._pubsub = _require_pubsub_redis().pubsub()
             await self._pubsub.subscribe(channel)
             self._channels.add(channel)
         except AgentError:
@@ -92,6 +93,13 @@ def _require_redis() -> Any:
     redis = get_redis()
     if redis is None:
         raise PubSubError("PUBSUB_REDIS_UNAVAILABLE", "Redis client is not initialized.")
+    return redis
+
+
+def _require_pubsub_redis() -> Any:
+    redis = get_redis_pubsub()
+    if redis is None:
+        raise PubSubError("PUBSUB_REDIS_UNAVAILABLE", "Redis pubsub client is not initialized.")
     return redis
 
 
