@@ -122,11 +122,14 @@ class TestRequestSignatureOk:
         settings.feishu_encrypt_key = "ekey"
         assert request_signature_ok(_request({}), b'{"encrypt":"x"}') is False
 
-    def test_token_only_with_signature_header_rejected(self) -> None:
-        # 明文模式飞书不发签名头；带头但没配 encrypt_key 无从校验，拒绝。
+    def test_token_only_with_signature_header_judged_by_token(self) -> None:
+        # 真机抓包实证：明文模式飞书也发签名头（encrypt_key 按空串计算，无鉴权价值）。
+        # 只配 token 时须忽略签名头、按 body token 判——正确 token 放行，错误拒绝。
         settings.feishu_verification_token = "vtoken"
-        body = _v2_event("vtoken")
-        assert request_signature_ok(_request(_enc_headers(body, "guess")), body) is False
+        good = _v2_event("vtoken")
+        assert request_signature_ok(_request(_enc_headers(good, "")), good) is True
+        bad = _v2_event("intruder")
+        assert request_signature_ok(_request(_enc_headers(bad, "")), bad) is False
 
 
 class TestEventRouteSignature:
