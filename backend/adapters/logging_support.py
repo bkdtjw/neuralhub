@@ -66,19 +66,24 @@ def log_llm_request_end(
 
 
 def log_prefix_fingerprint(logger: Any, request: LLMRequest, payload: dict[str, Any]) -> None:
-    """记录实发前缀(system+tools)指纹，用于跨请求比对 prompt cache 前缀是否字节稳定。"""
+    """记录实发前缀(system+tools)与 messages 指纹，用于跨请求比对 prompt cache 前缀是否字节稳定。"""
     tools = payload.get("tools") or []
     names = [str(tool.get("name", "")) for tool in tools]
     prefix_bytes = json.dumps(
         {"system": payload.get("system"), "tools": tools},
         ensure_ascii=False,
     ).encode("utf-8")
+    messages = payload.get("messages") or []
+    messages_bytes = json.dumps(messages, ensure_ascii=False).encode("utf-8")
     logger.info(
         "llm_prefix_fingerprint",
         cache_prefix_hash=(request.cache_prefix_hash or "")[:16],
         payload_prefix_sha=hashlib.sha256(prefix_bytes).hexdigest()[:16],
         tools_count=str(len(names)),
         tools_names="|".join(names),
+        messages_sha=hashlib.sha256(messages_bytes).hexdigest()[:16],
+        messages_count=str(len(messages)),
+        messages_bytes=str(len(messages_bytes)),
     )
 
 
