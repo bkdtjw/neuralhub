@@ -85,6 +85,39 @@ def test_anthropic_message_start_without_usage_is_none() -> None:
     assert anthropic_parse("message_start", json.dumps({"type": "message_start", "message": {}}), "anthropic") is None
 
 
+def test_anthropic_message_delta_carries_kimi_cache_fields() -> None:
+    # Kimi 的 anthropic 兼容层：message_start 报未扣缓存全量，真实 input/cache_read 在 message_delta。
+    raw = json.dumps(
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"input_tokens": 1, "cache_read_input_tokens": 6761, "output_tokens": 20},
+        }
+    )
+    chunk = anthropic_parse("message_delta", raw, "anthropic")
+    assert chunk is not None and chunk.type == "usage"
+    assert chunk.data == {"prompt_tokens": 1, "completion_tokens": 20, "cached_prompt_tokens": 6761}
+
+
+def test_anthropic_usage_kimi_delta_overrides_start_full_count() -> None:
+    start = anthropic_parse(
+        "message_start",
+        json.dumps({"type": "message_start", "message": {"usage": {"input_tokens": 6762, "cache_read_input_tokens": 0, "output_tokens": 0}}}),
+        "anthropic",
+    )
+    delta = anthropic_parse(
+        "message_delta",
+        json.dumps({"type": "message_delta", "usage": {"input_tokens": 1, "cache_read_input_tokens": 6761, "output_tokens": 20}}),
+        "anthropic",
+    )
+    acc = {"prompt_tokens": 0, "completion_tokens": 0, "cached_prompt_tokens": 0}
+    assert start is not None and delta is not None
+    merge_usage(acc, start.data)
+    merge_usage(acc, delta.data)
+    # 最后非零覆盖：delta 的真实 input/cache_read 覆盖 start 的全量口径，缓存命中不再被记零。
+    assert acc == {"prompt_tokens": 1, "completion_tokens": 20, "cached_prompt_tokens": 6761}
+
+
 # --- OpenAI parse (pure logic, no HTTP) -------------------------------------
 
 

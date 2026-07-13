@@ -122,7 +122,14 @@ def _message_delta_usage(data: dict[str, Any]) -> StreamChunk | None:
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return None
-    return _usage_chunk(0, int(usage.get("output_tokens", 0) or 0), 0)
+    # Kimi 的 anthropic 兼容层把扣除缓存后的真实 input/cache_read 放在 message_delta
+    # （官方协议放 message_start，delta 不带这两个字段）。merge_usage 的最后非零覆盖
+    # 语义天然兼容两种口径；此前只取 output 会把 Kimi 的缓存命中数整个丢掉。
+    return _usage_chunk(
+        int(usage.get("input_tokens", 0) or 0),
+        int(usage.get("output_tokens", 0) or 0),
+        int(usage.get("cache_read_input_tokens", 0) or 0),
+    )
 
 
 def _usage_chunk(prompt: int, completion: int, cached: int) -> StreamChunk:
