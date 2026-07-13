@@ -23,8 +23,10 @@ async def create_connected_client(
         raise AgentError("MCP_CONNECT_SERVER_ERROR", str(exc)) from exc
 
 
-async def safe_disconnect(client: MCPClient) -> None:
+async def safe_disconnect(client: MCPClient) -> bool:
+    """断开失败（如 anyio cancel scope 跨 task 退出）不冒泡；返回是否干净断开。"""
     try:
         await client.disconnect()
+        return True
     except Exception:
-        return None
+        return False

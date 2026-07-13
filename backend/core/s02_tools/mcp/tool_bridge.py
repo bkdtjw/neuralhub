@@ -4,16 +4,14 @@ import asyncio
 from typing import Any
 
 from backend.common.errors import AgentError
-from backend.common.types import (
-    MCPToolInfo,
-    ToolDefinition,
-    ToolParameterSchema,
-    ToolPermission,
-    ToolResult,
-)
+from backend.common.logging import get_logger
+from backend.common.types import ToolResult
 from backend.core.s02_tools.registry import ToolRegistry
 
+from .bridge_support import build_definition, tool_prefix
 from .server_manager import MCPServerManager
+
+logger = get_logger(component="mcp_tool_bridge")
 
 
 class MCPToolBridge:
@@ -60,7 +58,7 @@ class MCPToolBridge:
                     self._remove_server_tools_locked(server_id)
                 for status in statuses:
                     if status.id in active_ids:
-                        total += await self._sync_server_tools_locked(status.id)
+                        total += await self._sync_server_tools_degraded_locked(status.id)
                 self._synced_version = self._server_manager.version
                 return total
         except AgentError:
@@ -84,7 +82,7 @@ class MCPToolBridge:
                     self._remove_server_tools_locked(server_id)
                 for status in statuses:
                     if status.id in target_ids:
-                        total += await self._sync_server_tools_locked(status.id)
+                        total += await self._sync_server_tools_degraded_locked(status.id)
                 self._synced_version = self._server_manager.version
                 return total
         except AgentError:
@@ -99,11 +97,24 @@ class MCPToolBridge:
         except Exception as exc:
             raise AgentError("MCP_REMOVE_SERVER_TOOLS_ERROR", str(exc)) from exc
 
+    async def _sync_server_tools_degraded_locked(self, server_id: str) -> int:
+        """批量同步中单个 server 失败只降级（该 server 无工具），不拖垮聊天主链路。"""
+        try:
+            return await self._sync_server_tools_locked(server_id)
+        except Exception as exc:
+            logger.warning(
+                "mcp_server_sync_skipped",
+                server_id=server_id,
+                error_code=getattr(exc, "code", None),
+                error=str(exc),
+            )
+            return 0
+
     async def _sync_server_tools_locked(self, server_id: str) -> int:
         self._remove_server_tools_locked(server_id)
         tool_names: set[str] = set()
         for tool in await self._server_manager.refresh_tools(server_id):
-            definition = self._build_definition(server_id, tool)
+            definition = build_definition(server_id, tool)
             self._registry.register(definition, self._build_executor(server_id, tool.name))
             tool_names.add(definition.name)
         self._server_tools[server_id] = tool_names
@@ -118,29 +129,12 @@ class MCPToolBridge:
         return removed
 
     def _discover_names(self, server_id: str) -> set[str]:
-        prefix = self._tool_prefix(server_id)
+        prefix = tool_prefix(server_id)
         return {
             tool.name
             for tool in self._registry.list_definitions()
             if tool.name.startswith(prefix)
         }
-
-    def _build_definition(self, server_id: str, tool: MCPToolInfo) -> ToolDefinition:
-        return ToolDefinition(
-            name=f"{self._tool_prefix(server_id)}{tool.name}",
-            description=tool.description or f"MCP tool {tool.name} from {server_id}",
-            category="mcp",
-            parameters=self._to_parameter_schema(tool.input_schema),
-            permission=ToolPermission(requires_approval=True, sandboxed=False),
-        )
-
-    def _to_parameter_schema(self, input_schema: dict[str, Any]) -> ToolParameterSchema:
-        return ToolParameterSchema(
-            type=str(input_schema.get("type", "object")),
-            description=str(input_schema.get("description", "")),
-            required=list(input_schema.get("required", [])),
-            properties=dict(input_schema.get("properties", {})),
-        )
 
     def _build_executor(self, server_id: str, tool_name: str):
         async def execute(args: dict[str, Any]) -> ToolResult:
@@ -185,9 +179,5 @@ class MCPToolBridge:
             return True
         client = await self._server_manager.get_client(server_id)
         return client is not None and not client.is_connected
-
-    def _tool_prefix(self, server_id: str) -> str:
-        return f"mcp__{server_id}__"
-
 
 __all__ = ["MCPToolBridge"]

@@ -110,6 +110,7 @@ class MCPServerManager:
                     self._clients,
                     self._tool_cache,
                     self._client_factory,
+                    on_stale_client_dropped=self._bump_version,
                 )
                 return list(self._tool_cache.get(server_id, []))
         except AgentError:
@@ -170,9 +171,6 @@ class MCPServerManager:
         except Exception as exc:
             raise AgentError("MCP_DISCONNECT_SERVER_ERROR", str(exc)) from exc
 
-    def _load_json_seed(self) -> list[MCPServerConfig]:
-        return support.load_server_seed(self._seed_path)
-
     async def _ensure_initialized(self) -> None:
         try:
             if self._initialized:
@@ -182,7 +180,7 @@ class MCPServerManager:
                     return
                 configs = await self._store.list_all()
                 if not configs:
-                    seeds = self._load_json_seed()
+                    seeds = support.load_server_seed(self._seed_path)
                     if seeds:
                         await self._store.import_from_json(seeds)
                         configs = seeds
