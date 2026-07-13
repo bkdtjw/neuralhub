@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from backend.api.routes.completion_runtime import RuntimeRegistryKey, get_runtime_registry
 from backend.api.routes.mcp import mcp_server_manager
 from backend.api.routes.providers import provider_manager
 from backend.common import AgentError, LLMError
@@ -16,7 +17,6 @@ from backend.config.settings import settings as app_settings
 from backend.core.s01_agent_loop import AgentLoop
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
-from backend.core.s02_tools.mcp import MCPToolBridge
 from backend.core.system_prompt import build_system_prompt
 from backend.schemas.completion import ChatCompletionChoice, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionUsage
 
@@ -103,29 +103,41 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
         if user_idx < 0:
             raise HTTPException(status_code=400, detail={"code": "INVALID_MESSAGES", "message": "No user message found"})
         adapter = await provider_manager.get_adapter(request.provider_id)
-        registry = ToolRegistry()
-        register_builtin_tools(
-            registry,
-            request.workspace,
-            mode=request.permission_mode,
-            adapter=adapter,
-            default_model=request.model,
-            feishu_webhook_url=app_settings.feishu_webhook_url or None,
-            feishu_secret=app_settings.feishu_webhook_secret or None,
-            zhipu_web_search_api_key=app_settings.zhipu_web_search_api_key or None,
-            youtube_api_key=app_settings.youtube_api_key or None,
-            youtube_proxy_url=app_settings.youtube_proxy_url or None,
-            twitter_username=app_settings.twitter_username or None,
-            twitter_email=app_settings.twitter_email or None,
-            twitter_password=app_settings.twitter_password or None,
-            twitter_proxy_url=app_settings.twitter_proxy_url or None,
-            twitter_cookies_file=app_settings.twitter_cookies_file or None,
-            agent_runtime=getattr(raw_request.app.state, "agent_runtime", None),
-            spec_registry=getattr(raw_request.app.state, "spec_registry", None),
-            task_queue=getattr(raw_request.app.state, "task_queue", None),
-            parent_task_id=_completion_parent_task_id(raw_request),
+
+        def _build_registry(registry: ToolRegistry) -> None:
+            register_builtin_tools(
+                registry,
+                request.workspace,
+                mode=request.permission_mode,
+                adapter=adapter,
+                default_model=request.model,
+                feishu_webhook_url=app_settings.feishu_webhook_url or None,
+                feishu_secret=app_settings.feishu_webhook_secret or None,
+                zhipu_web_search_api_key=app_settings.zhipu_web_search_api_key or None,
+                youtube_api_key=app_settings.youtube_api_key or None,
+                youtube_proxy_url=app_settings.youtube_proxy_url or None,
+                twitter_username=app_settings.twitter_username or None,
+                twitter_email=app_settings.twitter_email or None,
+                twitter_password=app_settings.twitter_password or None,
+                twitter_proxy_url=app_settings.twitter_proxy_url or None,
+                twitter_cookies_file=app_settings.twitter_cookies_file or None,
+                agent_runtime=getattr(raw_request.app.state, "agent_runtime", None),
+                spec_registry=getattr(raw_request.app.state, "spec_registry", None),
+                task_queue=getattr(raw_request.app.state, "task_queue", None),
+                parent_task_id=_completion_parent_task_id(raw_request),
+            )
+
+        runtime = await get_runtime_registry(
+            RuntimeRegistryKey(
+                workspace=request.workspace or "",
+                mode=request.permission_mode,
+                model=request.model,
+                provider_id=request.provider_id or "",
+            ),
+            mcp_server_manager,
+            _build_registry,
         )
-        await MCPToolBridge(mcp_server_manager, registry).sync_all()
+        registry = runtime.registry
         loop = AgentLoop(
             config=AgentConfig(
                 model=request.model,
