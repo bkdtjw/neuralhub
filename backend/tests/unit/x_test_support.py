@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import importlib
 import sys
 from types import ModuleType
 from typing import Any
 
 import pytest
+
+from backend.tests.unit.module_reload_support import fresh_import
 
 
 class FakeTooManyRequestsError(Exception):
@@ -114,10 +115,13 @@ FakeTooManyRequests = FakeTooManyRequestsError
 
 def load_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     install_twikit_module(monkeypatch)
-    sys.modules.pop("backend.core.s02_tools.builtin.x_client", None)
-    sys.modules.pop("backend.core.s02_tools.builtin.x_search", None)
-    x_client = importlib.import_module("backend.core.s02_tools.builtin.x_client")
-    x_search = importlib.import_module("backend.core.s02_tools.builtin.x_search")
+    # 经 fresh_import 重导：测试结束后 sys.modules 还原为原模块，避免新旧
+    # XClientError 类身份分裂泄漏到后续用例（详见 module_reload_support）。
+    x_client, x_search = fresh_import(
+        monkeypatch,
+        "backend.core.s02_tools.builtin.x_client",
+        "backend.core.s02_tools.builtin.x_search",
+    )
     return x_client, x_search
 
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import importlib
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +17,7 @@ from backend.core.s02_tools.builtin.collect_and_process_support import (
 )
 from backend.core.s02_tools import ToolRegistry
 from backend.core.s02_tools.builtin import register_builtin_tools
+from backend.tests.unit.module_reload_support import fresh_import
 from backend.tests.unit.x_test_support import install_twikit_module
 from backend.tests.unit.youtube_test_support import install_transcript_module
 
@@ -167,14 +166,16 @@ def _tweet(label: str, retweets: int) -> RawTweet:
 def _load_collect_module(monkeypatch: pytest.MonkeyPatch) -> Any:
     install_twikit_module(monkeypatch)
     install_transcript_module(monkeypatch)
-    for name in (
+    # 经 fresh_import 重导：测试结束后 sys.modules 还原为原模块。此前用
+    # sys.modules.pop 重导会永久留下新 x_client 副本，令 test_x_api 的 502
+    # 用例在全量顺序下因 XClientError 类身份分裂而穿透路由捕获。
+    return fresh_import(
+        monkeypatch,
         "backend.core.s02_tools.builtin.x_client",
         "backend.core.s02_tools.builtin.youtube_transcript_client",
         "backend.core.s02_tools.builtin.youtube_client",
         "backend.core.s02_tools.builtin.collect_and_process",
-    ):
-        sys.modules.pop(name, None)
-    return importlib.import_module("backend.core.s02_tools.builtin.collect_and_process")
+    )[-1]
 
 
 def _config(module: Any, tmp_path: Path) -> Any:

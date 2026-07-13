@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import importlib
 import sys
 from types import ModuleType
 from typing import Any
 
 import httpx
 import pytest
+
+from backend.tests.unit.module_reload_support import fresh_import
 
 
 class FakeTranscriptError(Exception):
@@ -123,11 +124,14 @@ def install_transcript_module(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def load_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     install_transcript_module(monkeypatch)
-    sys.modules.pop("backend.core.s02_tools.builtin.youtube_transcript_client", None)
-    sys.modules.pop("backend.core.s02_tools.builtin.youtube_client", None)
-    sys.modules.pop("backend.core.s02_tools.builtin.youtube_search", None)
-    youtube_client = importlib.import_module("backend.core.s02_tools.builtin.youtube_client")
-    youtube_search = importlib.import_module("backend.core.s02_tools.builtin.youtube_search")
+    # 经 fresh_import 重导：测试结束后 sys.modules 还原为原模块，避免重导出的
+    # 新异常类泄漏给后续用例（详见 module_reload_support）。
+    _, youtube_client, youtube_search = fresh_import(
+        monkeypatch,
+        "backend.core.s02_tools.builtin.youtube_transcript_client",
+        "backend.core.s02_tools.builtin.youtube_client",
+        "backend.core.s02_tools.builtin.youtube_search",
+    )
     return youtube_client, youtube_search
 
 
