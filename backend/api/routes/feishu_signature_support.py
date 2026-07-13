@@ -18,14 +18,14 @@ logger = get_logger(component="feishu_signature_support")
 
 
 def request_signature_ok(request: Request, body: bytes) -> bool:
-    """Return True when the request signature is valid or no secret is configured.
+    """Return True when the callback passes Feishu's official verification.
 
     Reads the real Lark headers ``X-Lark-Request-Timestamp`` /
-    ``X-Lark-Request-Nonce`` / ``X-Lark-Signature``. When neither
-    ``feishu_verification_token`` nor ``feishu_encrypt_key`` is set (the dev
-    default), ``verify_signature`` returns True and the request is allowed
-    through. A missing or mismatched signature (with a secret configured) or an
-    internal verify error yields False so the caller rejects the request.
+    ``X-Lark-Request-Nonce`` / ``X-Lark-Signature``. 加密模式（配了
+    ``feishu_encrypt_key``）按签名头校验；明文模式（只配
+    ``feishu_verification_token``）飞书不发签名头，改为比对 body 内的 token
+    字段；两者都未配置（dev 默认）放行。校验不过或内部错误返回 False，
+    由调用方拒绝请求。
     """
     timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
     nonce = request.headers.get("X-Lark-Request-Nonce", "")

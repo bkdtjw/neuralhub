@@ -19,28 +19,47 @@ def verify_signature(
     verification_token: str = "",
     encrypt_key: str = "",
 ) -> bool:
+    """按飞书官方协议校验回调请求。
+
+    - 加密模式（开放平台配置了 Encrypt Key）：请求带 ``X-Lark-Signature`` 头，
+      校验 sha256(timestamp + nonce + encrypt_key + body)。
+    - 明文模式（只配 Verification Token）：飞书不发签名头，官方校验方式是
+      比对 body 内的 token 字段（v2 事件在 header.token，v1/卡片回调在顶层 token）。
+    - 两者都未配置：放行（dev 默认）。
+    """
     try:
         if not signature:
-            return not verification_token and not encrypt_key
-        candidates: list[str] = []
-        if verification_token:
-            candidates.append(
-                hmac.new(
-                    f"{timestamp}\n{verification_token}".encode("utf-8"),
-                    body,
-                    digestmod=hashlib.sha256,
-                ).hexdigest()
-            )
-        if encrypt_key:
-            candidates.append(
-                hashlib.sha256(
-                    f"{timestamp}{nonce}{encrypt_key}".encode("utf-8") + body
-                ).hexdigest()
-            )
-        return any(hmac.compare_digest(item, signature) for item in candidates)
+            if not verification_token and not encrypt_key:
+                return True
+            if encrypt_key:
+                # 配了 Encrypt Key 即加密模式，飞书必带签名头；无头视为伪造。
+                return False
+            return _body_token_matches(body, verification_token)
+        if not encrypt_key:
+            return False
+        expected = hashlib.sha256(
+            f"{timestamp}{nonce}{encrypt_key}".encode("utf-8") + body
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature)
     except Exception as exc:  # noqa: BLE001
         logger.error("feishu_signature_verify_failed", error=str(exc))
         raise AgentError("FEISHU_SIGNATURE_VERIFY_ERROR", str(exc)) from exc
+
+
+def _body_token_matches(body: bytes, verification_token: str) -> bool:
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    token = ""
+    header = data.get("header")
+    if isinstance(header, dict):
+        token = str(header.get("token") or "")
+    if not token:
+        token = str(data.get("token") or "")
+    return bool(token) and hmac.compare_digest(token, verification_token)
 
 
 def decrypt_payload(encrypt: str, encrypt_key: str) -> dict:
