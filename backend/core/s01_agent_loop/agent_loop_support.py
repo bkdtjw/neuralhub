@@ -47,7 +47,9 @@ def build_cache_prefix_hash(system_prompt: str, tools: list[ToolDefinition]) -> 
         "system_prompt": system_prompt,
         "tools": [tool.model_dump(mode="json") for tool in tools],
     }
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    # 不做 sort_keys：实发 payload 保留原始 key 序，hash 必须与实发字节同步敏感，
+    # 否则 schema key 序漂移会破坏 provider 缓存却在本指纹上不可见。
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 

@@ -28,6 +28,7 @@ from .logging_support import (
     log_llm_request_error,
     log_llm_request_retry,
     log_llm_request_start,
+    log_prefix_fingerprint,
 )
 
 
@@ -92,6 +93,7 @@ class AnthropicAdapter(LLMAdapter):
     async def complete(self, request: LLMRequest) -> LLMResponse:
         model = request.model or self._default_model
         payload = build_payload(request, self._default_model, stream=False)
+        log_prefix_fingerprint(logger, request, payload)
         started_at = log_llm_request_start(logger, model=model, provider=self._provider, request_type="complete")
         for attempt in range(1, self._max_retries + 1):
             try:
@@ -134,6 +136,7 @@ class AnthropicAdapter(LLMAdapter):
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         model = request.model or self._default_model
         payload = build_payload(request, self._default_model, stream=True)
+        log_prefix_fingerprint(logger, request, payload)
         tool_blocks: dict[int, dict[str, object]] = {}
         thinking_blocks: dict[int, dict[str, object]] = {}
         usage_acc = new_usage_acc()
