@@ -1,43 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import Modal from "@/components/common/Modal";
+import { useEffect, useState } from "react";
 import TokenUsagePanel from "@/components/settings/TokenUsagePanel";
+import ProviderModal from "@/components/settings/ProviderModal";
 import { api } from "@/lib/api-client";
 import { useAgentStore } from "@/stores/agentStore";
 import type { Provider } from "@/types";
 
 type SettingsSection = "providers" | "tokens";
 const SECTIONS: { id: SettingsSection; label: string }[] = [{ id: "providers", label: "Providers" }, { id: "tokens", label: "Token 消耗" }];
-interface ProviderForm {
-  providerType: string;
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  defaultModel: string;
-  availableModels: string;
-  enabled: boolean;
-}
-interface TestState {
-  ok: boolean;
-  message: string;
-}
 const typeLabel: Record<string, string> = {
   openai_compat: "OpenAI Compatible",
   anthropic: "Anthropic",
   ollama: "Ollama",
 };
-const emptyForm: ProviderForm = { providerType: "openai_compat", name: "", baseUrl: "", apiKey: "", defaultModel: "", availableModels: "", enabled: true };
-const toForm = (provider?: Provider): ProviderForm =>
-  provider
-    ? {
-        providerType: provider.providerType,
-        name: provider.name,
-        baseUrl: provider.baseUrl,
-        apiKey: "",
-        defaultModel: provider.defaultModel,
-        availableModels: provider.availableModels.join(", "),
-        enabled: provider.enabled,
-      }
-    : emptyForm;
 export default function Settings() {
   const [section, setSection] = useState<SettingsSection>("providers");
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -45,10 +19,7 @@ export default function Settings() {
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
-  const [form, setForm] = useState<ProviderForm>(emptyForm);
-  const [testState, setTestState] = useState<TestState | null>(null);
   const refreshAgentProviders = useAgentStore((state) => state.loadProviders);
-  const modalTitle = useMemo(() => (editing ? "编辑 Provider" : "添加 Provider"), [editing]);
   const loadProviders = async () => {
     try {
       setLoading(true);
@@ -67,34 +38,11 @@ export default function Settings() {
   }, []);
   const openAdd = () => {
     setEditing(null);
-    setForm(emptyForm);
-    setTestState(null);
     setModalOpen(true);
   };
   const openEdit = (provider: Provider) => {
     setEditing(provider);
-    setForm(toForm(provider));
-    setTestState(null);
     setModalOpen(true);
-  };
-  const saveProvider = async () => {
-    const payload: Record<string, unknown> = {
-      name: form.name.trim(),
-      provider_type: form.providerType,
-      base_url: form.baseUrl.trim(),
-      default_model: form.defaultModel.trim(),
-      available_models: form.availableModels.split(",").map((m) => m.trim()).filter(Boolean),
-      enabled: form.enabled,
-    };
-    if (form.apiKey.trim() || !editing) payload.api_key = form.apiKey.trim();
-    try {
-      if (editing) await api.updateProvider(editing.id, payload);
-      else await api.addProvider(payload);
-      setModalOpen(false);
-      await loadProviders();
-    } catch (err) {
-      setTestState({ ok: false, message: `保存失败: ${(err as Error).message}` });
-    }
   };
   return (
     <div className="flex h-full min-h-0 bg-[var(--as-bg)] text-[var(--as-text)]">
@@ -160,38 +108,7 @@ export default function Settings() {
           </div>
         )}
       </section>
-      <Modal
-        isOpen={modalOpen}
-        title={modalTitle}
-        onClose={() => setModalOpen(false)}
-        footer={
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="rounded-md border border-[var(--as-border-strong)] px-4 py-2 text-sm hover:bg-[var(--as-hover)]">取消</button>
-            <button type="button" onClick={() => void saveProvider()} className="as-primary-btn px-4 py-2 text-sm">保存</button>
-          </div>
-        }
-      >
-        <div className="space-y-3 text-sm">
-          <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">Provider 类型</span><select value={form.providerType} onChange={(e) => setForm((f) => ({ ...f, providerType: e.target.value }))} className="w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2"><option value="openai_compat">OpenAI Compatible</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option></select></label>
-          <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">名称</span><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2" /></label>
-          <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">API Base URL</span><input value={form.baseUrl} onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))} className="w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2 font-mono" /></label>
-          <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">API Key</span><input type="password" value={form.apiKey} onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))} className="w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2 font-mono" placeholder={editing ? "留空表示不修改" : ""} /></label>
-          <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">默认模型</span><input value={form.defaultModel} onChange={(e) => setForm((f) => ({ ...f, defaultModel: e.target.value }))} className="w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2 font-mono" /></label>
-          <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">可用模型（逗号分隔）</span><input value={form.availableModels} onChange={(e) => setForm((f) => ({ ...f, availableModels: e.target.value }))} className="w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2 font-mono" /></label>
-          <div className="flex items-center gap-3">
-            {editing ? (
-              <button
-                type="button"
-                onClick={() => void api.testProvider(editing.id).then((r) => setTestState({ ok: r.ok, message: r.ok ? `✓ 连接成功 (${r.latency_ms}ms)` : `✗ 连接失败: ${r.message}` })).catch((e) => setTestState({ ok: false, message: `✗ 连接失败: ${(e as Error).message}` }))}
-                className="rounded-md border border-[var(--as-border-strong)] px-3 py-1.5 text-xs hover:bg-[var(--as-hover)]"
-              >
-                测试连接
-              </button>
-            ) : null}
-            {testState ? <span className={`text-xs ${testState.ok ? "text-emerald-400" : "text-red-400"}`}>{testState.message}</span> : null}
-          </div>
-        </div>
-      </Modal>
+      <ProviderModal isOpen={modalOpen} editing={editing} onClose={() => setModalOpen(false)} onSaved={loadProviders} />
     </div>
   );
 }

@@ -5,12 +5,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from backend.adapters.model_discovery import discover_models
 from backend.adapters.provider_manager import ProviderManager
 from backend.api.middleware.auth import verify_token
 from backend.common import LLMError
 from backend.common.types import ProviderConfig, ProviderType
 from backend.schemas.provider import (
     AddProviderRequest,
+    DetectModelsRequest,
+    DetectModelsResponse,
     ProviderResponse,
     ProviderUpdateRequest,
     TestConnectionResponse,
@@ -130,6 +133,26 @@ async def test_provider(id: str) -> TestConnectionResponse:
         )
     except LLMError as exc:
         raise _to_http_error(exc) from exc
+
+
+@router.post("/detect-models", response_model=DetectModelsResponse)
+async def detect_models(body: DetectModelsRequest) -> DetectModelsResponse:
+    """探测该 base_url/key 实际可调用的模型列表；编辑态 key 留空时回落到已存储的凭据。"""
+    try:
+        provider_type = _normalize_provider_type(body.provider_type)
+        base_url, api_key = body.base_url.strip(), body.api_key.strip()
+        if body.provider_id and not api_key:
+            stored = next(
+                (item for item in await provider_manager.list_all() if item.id == body.provider_id),
+                None,
+            )
+            if stored is not None:
+                api_key = stored.api_key
+                base_url = base_url or stored.base_url
+        models = await discover_models(provider_type, base_url, api_key)
+        return DetectModelsResponse(ok=True, models=models, message=f"发现 {len(models)} 个模型")
+    except LLMError as exc:
+        return DetectModelsResponse(ok=False, models=[], message=exc.message)
 
 
 @router.put("/{id}/default", response_model=ProviderResponse)
