@@ -195,6 +195,7 @@ export const api = {
   },
   deleteProvider: (id: string): Promise<{ ok: boolean; message: string }> => request(`/api/providers/${id}`, { method: "DELETE" }),
   testProvider: (id: string): Promise<{ ok: boolean; message: string; latency_ms: number }> => request(`/api/providers/${id}/test`, { method: "POST" }),
+  detectModels: (data: Record<string, unknown>): Promise<{ ok: boolean; models: string[]; message: string }> => request("/api/providers/detect-models", { method: "POST", body: json(data) }),
   setDefault: async (id: string): Promise<Provider> => {
     const res = await request<ProviderResponse>(`/api/providers/${id}/default`, { method: "PUT" });
     return toProvider(res);

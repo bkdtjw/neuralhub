@@ -43,6 +43,19 @@ class TestConnectionResponse(BaseModel):
     latency_ms: int
 
 
+class DetectModelsRequest(BaseModel):
+    provider_type: str
+    base_url: str = ""
+    api_key: str = ""
+    provider_id: str | None = None
+
+
+class DetectModelsResponse(BaseModel):
+    ok: bool
+    models: list[str] = Field(default_factory=list)
+    message: str = ""
+
+
 class ProviderCreateRequest(AddProviderRequest):
     pass
 
@@ -83,6 +96,8 @@ class ProviderDefaultResponse(BaseModel):
 
 __all__ = [
     "AddProviderRequest",
+    "DetectModelsRequest",
+    "DetectModelsResponse",
     "ProviderResponse",
     "TestConnectionResponse",
     "ProviderCreateRequest",
