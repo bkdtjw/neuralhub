@@ -3,11 +3,13 @@ import { useState } from "react";
 import LogResults from "@/components/observability/LogResults";
 import LogSearchForm from "@/components/observability/LogSearchForm";
 import TraceFlameGraph from "@/components/observability/TraceFlameGraph";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { api } from "@/lib/api-client";
 import { observabilityApi } from "@/lib/observability-api";
 import type { LogEntry, LogLevel, TraceSpan } from "@/types";
 
 export default function Logs() {
+  useDocumentTitle("日志");
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<"trace" | "session">("trace");
   const [level, setLevel] = useState<LogLevel | "">("");

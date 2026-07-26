@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import CacheHitTrend from "@/components/observability/CacheHitTrend";
 import MetricCard from "@/components/observability/MetricCard";
 import MetricsTrend from "@/components/observability/MetricsTrend";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { api } from "@/lib/api-client";
 import { observabilityApi } from "@/lib/observability-api";
 import type { LatencySummary, MetricsSummary } from "@/types";
@@ -44,6 +45,7 @@ const emptySummary = (days: number): MetricsSummary => ({
 const emptyLatency = (): LatencySummary => ({ latencies: {} });
 
 export default function Metrics() {
+  useDocumentTitle("指标");
   const [days, setDays] = useState(7);
   const [summary, setSummary] = useState<MetricsSummary>(emptySummary(7));
   const [latency, setLatency] = useState<LatencySummary>(emptyLatency());
