@@ -4,12 +4,14 @@ import { Radar } from "lucide-react";
 import HookDetail from "@/components/hooks/HookDetail";
 import HookForm from "@/components/hooks/HookForm";
 import HookList from "@/components/hooks/HookList";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useHooksStore } from "@/stores/hooksStore";
 import type { HookDraft, HookSummary } from "@/types/hooks";
 
 type FormTarget = { mode: "new" } | { mode: "edit"; summary: HookSummary } | null;
 
 export default function Hooks() {
+  useDocumentTitle("钩子");
   const summaries = useHooksStore((state) => state.summaries);
   const currentId = useHooksStore((state) => state.currentId);
   const loading = useHooksStore((state) => state.loading);

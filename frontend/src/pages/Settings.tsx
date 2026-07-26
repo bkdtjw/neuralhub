@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import TokenUsagePanel from "@/components/settings/TokenUsagePanel";
 import ProviderModal from "@/components/settings/ProviderModal";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { api } from "@/lib/api-client";
 import { useAgentStore } from "@/stores/agentStore";
 import type { Provider } from "@/types";
@@ -14,6 +15,7 @@ const typeLabel: Record<string, string> = {
   claude_code: "Claude Code",
 };
 export default function Settings() {
+  useDocumentTitle("设置");
   const [section, setSection] = useState<SettingsSection>("providers");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(false);

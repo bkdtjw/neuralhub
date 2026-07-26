@@ -7,6 +7,7 @@ import MessageList from "@/components/chat/MessageList";
 import SubAgentPanel from "@/components/chat/SubAgentPanel";
 import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
 import { agentWs } from "@/lib/websocket";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useSession } from "@/hooks/useSession";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAgentStore } from "@/stores/agentStore";
@@ -69,6 +70,8 @@ export default function Session() {
   }, [lastRunId, sessionId]);
 
   const activeSession = sessions.find((item) => item.id === sessionId) ?? sessions.find((item) => item.id === currentSessionId);
+  const sessionTitle = activeSession?.title.trim() || "新线程";
+  useDocumentTitle(sessionTitle);
   const workspaceName = (workspace || activeSession?.workspace || "").split(/[/\\]/).filter(Boolean).pop();
   const currentProvider = providers.find((provider) => provider.id === currentProviderId);
   const modelLabel = [currentProvider?.name, currentModel].filter(Boolean).join(" · ");
@@ -105,7 +108,9 @@ export default function Session() {
     <div className="relative flex h-full min-h-0 flex-col bg-[var(--as-bg)]">
       <header className="grid h-12 shrink-0 grid-cols-[160px_1fr_220px] items-center border-b border-[var(--as-border)] px-5">
         <div className="text-xs text-[var(--as-text-subtle)]">{workspaceName ? `项目：${workspaceName}` : ""}</div>
-        <div className="justify-self-center text-sm font-medium text-[var(--as-text)]">新线程</div>
+        <div className="max-w-[420px] justify-self-center truncate text-sm font-medium text-[var(--as-text)]" title={sessionTitle}>
+          {sessionTitle}
+        </div>
         <div className="flex justify-self-end gap-2">
           <button
             type="button"

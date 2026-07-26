@@ -1,10 +1,12 @@
 import { type ChangeEvent, useEffect, useRef } from "react";
 import { Database, Pencil, Plus, Upload } from "lucide-react";
 
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useKnowledgeStore } from "@/stores/knowledgeStore";
 import type { KnowledgeDocument } from "@/types/knowledge";
 
 export default function Knowledge() {
+  useDocumentTitle("知识库");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bases = useKnowledgeStore((state) => state.bases);
   const currentKbId = useKnowledgeStore((state) => state.currentKbId);

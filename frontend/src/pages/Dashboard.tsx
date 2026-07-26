@@ -6,6 +6,7 @@ import InputBar from "@/components/chat/InputBar";
 import HomeModeTabs from "@/components/knowledge/HomeModeTabs";
 import KnowledgeHomePanel from "@/components/knowledge/KnowledgeHomePanel";
 import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useAgentStore } from "@/stores/agentStore";
 import { useKnowledgeStore } from "@/stores/knowledgeStore";
 import { useSessionStore } from "@/stores/sessionStore";
@@ -18,6 +19,7 @@ const suggestions = [
 ];
 
 export default function Dashboard() {
+  useDocumentTitle("总览");
   const navigate = useNavigate();
   const [startError, setStartError] = useState("");
   const createSession = useSessionStore((state) => state.createSession);

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "@/lib/api-client";
+import { flagDone } from "@/lib/document-title";
 import { supportsThinking } from "@/lib/model-capabilities";
 import { deriveSessionTitle, mergeSessionMeta, mergeSessionsMeta, removeSessionMeta, saveSessionMeta, summarizeSessionTitle } from "@/lib/session-meta";
 import { mapFileDiffs } from "@/lib/tool-diffs";
@@ -243,7 +244,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   addMessage: (msg: Message) => set((state) => ({ messages: [...state.messages, msg] })),
   appendStreamText: (text: string) => set((state) => ({ streamingText: `${state.streamingText}${text}` })),
   appendStreamReasoning: (text: string) => set((state) => ({ streamingReasoning: `${state.streamingReasoning}${text}` })),
-  setStatus: (status: AgentStatus) => set({ status }),
+  setStatus: (status: AgentStatus) => {
+    // 会话身份：后台收到 done/error 终态时给标签页标题加「✓ 已完成 」前缀，回前台由 document-title 自动恢复。
+    if ((status === "done" || status === "error") && typeof document !== "undefined" && document.hidden) flagDone();
+    set({ status });
+  },
   setLastError: (message: string) => set({ lastError: message }),
   setConnectionState: (connectionState: ConnectionState) => set({ connectionState }),
   resync: async (sessionId: string) => {
