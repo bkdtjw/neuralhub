@@ -1,15 +1,10 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, Hammer, MessageSquare, RefreshCw, Undo2, X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { AlertTriangle, RefreshCw, X } from "lucide-react";
 
-import { fetchSubAgentTranscript } from "@/lib/sub-agent-api";
-import type { SubAgentTranscript } from "@/lib/sub-agent-api";
+import SubAgentEntryBlock from "@/components/chat/SubAgentEntryBlock";
+import { PINNED_THRESHOLD_PX } from "@/components/chat/auto-scroll";
+import { useSubAgentTranscript } from "@/components/chat/use-sub-agent-transcript";
 import type { SubAgentEntry } from "@/stores/subAgentStore";
-
-const KIND_META: Record<string, { label: string; Icon: typeof Hammer }> = {
-  tool_call: { label: "工具调用", Icon: Hammer },
-  tool_result: { label: "工具结果", Icon: Undo2 },
-  message: { label: "消息", Icon: MessageSquare },
-};
 
 const STATUS_META: Record<string, { label: string; dot: string }> = {
   pending: { label: "等待", dot: "bg-[var(--as-text-subtle)]" },
@@ -18,8 +13,6 @@ const STATUS_META: Record<string, { label: string; dot: string }> = {
   failed: { label: "失败", dot: "bg-[var(--as-danger)]" },
   skipped: { label: "跳过", dot: "bg-[var(--as-text-subtle)]" },
 };
-
-const POLL_MS = 2000;
 
 const formatTime = (tsMs: number): string =>
   Number.isFinite(tsMs) && tsMs > 0 ? new Date(tsMs).toLocaleTimeString() : "";
@@ -33,37 +26,9 @@ export default function SubAgentDetail({
   agent: SubAgentEntry;
   onClose: () => void;
 }) {
-  const [transcript, setTranscript] = useState<SubAgentTranscript | null>(null);
-  const [fetchError, setFetchError] = useState("");
-  const [reloadTick, setReloadTick] = useState(0);
-
-  useEffect(() => {
-    if (!rawRunId) {
-      setFetchError("该运行缺少 run_id，无法查询完整转录");
-      return;
-    }
-    let closed = false;
-    let timer: number | undefined;
-    const load = async () => {
-      try {
-        const data = await fetchSubAgentTranscript(rawRunId, agent.role);
-        if (closed) return;
-        setTranscript(data);
-        setFetchError("");
-        if (data.status === "pending" || data.status === "running") {
-          timer = window.setTimeout(() => void load(), POLL_MS);
-        }
-      } catch (error) {
-        if (closed) return;
-        setFetchError(error instanceof Error ? error.message : String(error));
-      }
-    };
-    void load();
-    return () => {
-      closed = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [rawRunId, agent.role, reloadTick]);
+  const { transcript, fetchError, updatedAt, refresh } = useSubAgentTranscript(rawRunId, agent.role, agent.status);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const pinnedRef = useRef(true);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -72,6 +37,19 @@ export default function SubAgentDetail({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // 贴底自动跟随：沿用 auto-scroll.ts 的贴底阈值，仅在用户已贴近底部时吸底，
+  // 向上翻阅历史时不被新条目强行拽回。
+  const entryCount = transcript?.entries.length ?? 0;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
+  }, [entryCount]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (el) pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < PINNED_THRESHOLD_PX;
+  };
 
   const status = STATUS_META[transcript?.status ?? agent.status] ?? STATUS_META.pending;
   const stage = transcript?.stage ?? agent.stage;
@@ -92,16 +70,29 @@ export default function SubAgentDetail({
               阶段 {stage + 1}
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto rounded p-1 text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
-            aria-label="关闭子 Agent 详情"
-          >
-            <X size={14} />
-          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {updatedAt > 0 ? (
+              <span className="font-mono text-[10px] text-[var(--as-text-subtle)]">更新于 {formatTime(updatedAt)}</span>
+            ) : null}
+            <button
+              type="button"
+              onClick={refresh}
+              className="rounded p-1 text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+              aria-label="手动刷新转录"
+            >
+              <RefreshCw size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+              aria-label="关闭子 Agent 详情"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </header>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
           {transcript ? (
             <>
               {transcript.dropped > 0 ? (
@@ -113,7 +104,7 @@ export default function SubAgentDetail({
                 <p className="pt-2 text-[12px] text-[var(--as-text-subtle)]">该子 agent 暂无活动记录。</p>
               ) : (
                 transcript.entries.map((entry, index) => (
-                  <EntryBlock
+                  <SubAgentEntryBlock
                     key={index}
                     kind={entry.kind}
                     content={entry.content}
@@ -130,7 +121,7 @@ export default function SubAgentDetail({
                 <span>完整转录不可用（{fetchError}），以下为实时预览（每条最多 160 字符）。</span>
                 <button
                   type="button"
-                  onClick={() => setReloadTick((value) => value + 1)}
+                  onClick={refresh}
                   className="ml-auto shrink-0 rounded p-1 text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
                   aria-label="重新拉取转录"
                 >
@@ -138,7 +129,7 @@ export default function SubAgentDetail({
                 </button>
               </div>
               {agent.activities.map((activity, index) => (
-                <EntryBlock
+                <SubAgentEntryBlock
                   key={index}
                   kind={activity.kind}
                   content={activity.preview}
@@ -157,33 +148,6 @@ export default function SubAgentDetail({
           ) : null}
         </div>
       </section>
-    </div>
-  );
-}
-
-function EntryBlock({
-  kind,
-  content,
-  isError,
-  time,
-}: {
-  kind: string;
-  content: string;
-  isError: boolean;
-  time: string;
-}) {
-  const meta = KIND_META[kind] ?? KIND_META.message;
-  return (
-    <div className="rounded-lg border border-[var(--as-border)] bg-[var(--as-surface-low)]">
-      <div className="flex items-center gap-1.5 border-b border-[var(--as-border)] px-2.5 py-1 text-[10px] text-[var(--as-text-subtle)]">
-        <meta.Icon size={11} className="shrink-0" />
-        <span>{meta.label}</span>
-        {isError ? <span className="text-[var(--as-danger)]">出错</span> : null}
-        <span className="ml-auto font-mono">{time}</span>
-      </div>
-      <pre className="max-h-[360px] overflow-y-auto whitespace-pre-wrap break-all px-2.5 py-2 font-mono text-[11px] leading-4 text-[var(--as-text-secondary)]">
-        {content}
-      </pre>
     </div>
   );
 }
