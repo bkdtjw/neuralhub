@@ -89,7 +89,7 @@ export default function SubAgentDetail({
           <span className="shrink-0 text-[11px] text-[var(--as-text-subtle)]">{status.label}</span>
           {stage !== undefined && stage !== null ? (
             <span className="shrink-0 rounded border border-[var(--as-border-strong)] bg-[var(--as-surface-low)] px-1.5 py-0.5 text-[10px] text-[var(--as-text-secondary)]">
-              阶段 {stage}
+              阶段 {stage + 1}
             </span>
           ) : null}
           <button

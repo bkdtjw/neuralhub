@@ -21,6 +21,7 @@ const STATUS_META: Record<SubAgentStatus, { label: string; dot: string }> = {
 
 export default function SubAgentPanel({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const runsMap = useSubAgentStore((state) => state.runs);
+  const clearSession = useSubAgentStore((state) => state.clearSession);
   const [detail, setDetail] = useState<{ runKey: string; role: string } | null>(null);
   const runs = useMemo(
     () =>
@@ -39,14 +40,25 @@ export default function SubAgentPanel({ sessionId, onClose }: { sessionId: strin
           <Bot size={14} className="text-[var(--as-accent)]" />
           子 Agent 面板
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-1 text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
-          aria-label="关闭子 Agent 面板"
-        >
-          <X size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          {runs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => clearSession(sessionId)}
+              className="rounded px-1.5 py-1 text-[11px] text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+            >
+              清空
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-[var(--as-text-subtle)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+            aria-label="关闭子 Agent 面板"
+          >
+            <X size={14} />
+          </button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {runs.length === 0 ? (
@@ -108,7 +120,7 @@ function RunCard({ run, onOpenAgent }: { run: SubAgentRun; onOpenAgent: (role: s
           <div key={stage ?? "flat"}>
             {run.source === "orchestrate" && stage !== undefined ? (
               <div className="px-1 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--as-text-subtle)]">
-                阶段 {stage}
+                阶段 {stage + 1}
               </div>
             ) : null}
             {agents.map((agent) => (

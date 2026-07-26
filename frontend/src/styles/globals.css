@@ -80,6 +80,22 @@ select:not(:disabled) {
   background: rgb(59 130 246 / 30%);
 }
 
+:focus-visible {
+  outline: 2px solid var(--as-accent);
+  outline-offset: 2px;
+}
+
+/* 用户偏好减少动态时，关停所有循环动画 */
+@media (prefers-reduced-motion: reduce) {
+  .tool-shimmer,
+  .as-spin-star,
+  .as-stream-cursor,
+  .animate-pulse,
+  .animate-spin {
+    animation: none;
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;

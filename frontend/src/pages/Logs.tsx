@@ -17,6 +17,7 @@ export default function Logs() {
   const [errorCode, setErrorCode] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [error, setError] = useState("");
   const [title, setTitle] = useState("日志结果");
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -30,6 +31,7 @@ export default function Logs() {
     }
     try {
       setLoading(true);
+      setSearched(true);
       setError("");
       const result = await api.searchLogs({
         traceId: searchType === "trace" ? query.trim() : undefined,
@@ -64,6 +66,7 @@ export default function Logs() {
     }
     try {
       setLoading(true);
+      setSearched(true);
       setError("");
       const [result, spanResult] = await Promise.all([
         api.getTrace(query.trim()),
@@ -118,7 +121,7 @@ export default function Logs() {
         ) : (
           <>
             <TraceFlameGraph spans={spans} />
-            <LogResults logs={logs} title={title} />
+            <LogResults logs={logs} title={title} searched={searched} />
           </>
         )}
       </section>

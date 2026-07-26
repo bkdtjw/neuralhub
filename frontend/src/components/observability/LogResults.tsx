@@ -5,6 +5,7 @@ import type { LogEntry } from "@/types";
 interface LogResultsProps {
   logs: LogEntry[];
   title: string;
+  searched: boolean;
 }
 
 const levelTone: Record<LogEntry["level"], string> = {
@@ -21,13 +22,13 @@ const formatTime = (value: string) =>
     second: "2-digit",
   }).format(new Date(value));
 
-export default function LogResults({ logs, title }: LogResultsProps) {
+export default function LogResults({ logs, title, searched }: LogResultsProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (logs.length === 0) {
     return (
       <section className="rounded-3xl border border-dashed border-[#2c2c2c] bg-[#050505] p-6 text-sm text-[#7d8590]">
-        暂无匹配日志。
+        {searched ? "暂无匹配日志。" : "输入 trace_id / session_id 或筛选条件，开始检索日志。"}
       </section>
     );
   }
