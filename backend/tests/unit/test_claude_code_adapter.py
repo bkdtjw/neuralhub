@@ -152,6 +152,19 @@ async def test_seeds_home_config_when_missing(
     assert json.loads(seeded) == {"hasCompletedOnboarding": True}
 
 
+async def test_strips_upstream_anthropic_env_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://other.example/compat/v4")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-other")
+    _, kwargs_seen = _install(monkeypatch, _FakeProc(json.dumps(_CLI_RESULT).encode()))
+    await ClaudeCodeAdapter(_config()).complete(_request())
+    env = kwargs_seen[0]["env"]
+    assert "ANTHROPIC_BASE_URL" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert env["HOME"] == "/root"
+
+
 def test_factory_creates_claude_code_adapter() -> None:
     adapter = AdapterFactory.create(_config())
     assert isinstance(adapter, ClaudeCodeAdapter)

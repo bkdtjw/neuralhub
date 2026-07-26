@@ -30,6 +30,19 @@ _DISALLOWED_TOOLS = (
     "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task,Agent,"
     "TodoWrite,Skill,SlashCommand,KillShell,BashOutput,EnterPlanMode,ExitPlanMode"
 )
+# 进程环境可能带指向其它厂商 compat 端点的 ANTHROPIC_* 覆写（app 容器就配了 zhipu），
+# CLI 会优先吃它们导致模型不存在/鉴权错乱；剥掉，强制走订阅登录态。
+_STRIPPED_ENV_KEYS = frozenset(
+    {
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+    }
+)
 
 
 def _render_message(message: Message) -> str:
@@ -83,7 +96,7 @@ class ClaudeCodeAdapter(LLMAdapter):
         env = dict(os.environ)
         if self._home:
             env["HOME"] = self._home
-        return env
+        return {key: value for key, value in env.items() if key not in _STRIPPED_ENV_KEYS}
 
     def _ensure_home_config(self) -> None:
         # CLI 要求 $HOME/.claude.json 存在（容器内首跑没有且因 backups 存在而拒绝自建），补种最小配置
