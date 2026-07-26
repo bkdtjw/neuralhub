@@ -7,6 +7,8 @@ from typing import Any, Literal
 from backend.common.logging import get_logger
 from backend.common.types import AgentEvent, AgentEventHandler
 
+from .transcript_store import SubAgentTranscriptStore, get_sub_agent_transcript_store
+
 logger = get_logger(component="sub_agent_progress")
 
 ProgressSource = Literal["orchestrate", "dispatch"]
@@ -38,10 +40,18 @@ class SubAgentProgressEmitter:
         handler: AgentEventHandler | None,
         source: ProgressSource,
         run_id: str | None = None,
+        store: SubAgentTranscriptStore | None = None,
     ) -> None:
         self._handler = handler
         self._source = source
         self.run_id = run_id or new_run_id()
+        self._store = store if store is not None else get_sub_agent_transcript_store()
+
+    def _record(self, action: Any) -> None:
+        try:
+            action(self._store)
+        except Exception as exc:  # noqa: BLE001 转录旁路绝不反噬执行
+            logger.warning("sub_agent_transcript_record_failed", error=str(exc))
 
     async def emit(self, event_type: Any, data: dict[str, Any]) -> None:
         if self._handler is None:
@@ -59,6 +69,11 @@ class SubAgentProgressEmitter:
     async def spawned(
         self, *, total: int, specs: list[str], message: str, stage: int | None = None
     ) -> None:
+        self._record(
+            lambda store: store.record_spawned(
+                self.run_id, self._source, specs, stage=stage, message=message
+            )
+        )
         await self.emit(
             "sub_agent_spawned",
             {
@@ -83,6 +98,11 @@ class SubAgentProgressEmitter:
         skipped: bool = False,
     ) -> None:
         event_type = "sub_agent_failed" if (error or skipped) else "sub_agent_completed"
+        self._record(
+            lambda store: store.record_done(
+                self.run_id, self._source, role, stage=stage, error=error, skipped=skipped
+            )
+        )
         await self.emit(
             event_type,
             {
@@ -98,14 +118,20 @@ class SubAgentProgressEmitter:
         )
 
     def child_observer(self, role: str, stage: int | None = None) -> AgentEventHandler:
-        """挂到子 AgentLoop 上，把子 agent 的关键活动以 preview 形式转发到父会话。"""
+        """挂到子 AgentLoop 上：全文进转录存储，preview 转发到父会话。"""
 
         async def _observe(event: AgentEvent) -> None:
             if event.type not in _CHILD_FORWARD_TYPES:
                 return
-            kind, preview = _summarize_child_event(event)
+            kind, full, is_error = _describe_child_event(event)
+            preview = clip_preview(f"✗ {full}" if is_error else full)
             if not preview:
                 return
+            self._record(
+                lambda store: store.record_entry(
+                    self.run_id, self._source, role, kind, full, stage=stage, is_error=is_error
+                )
+            )
             await self.emit(
                 "sub_agent_progress",
                 {"role": role, "stage": stage, "kind": kind, "preview": preview},
@@ -114,18 +140,19 @@ class SubAgentProgressEmitter:
         return _observe
 
 
-def _summarize_child_event(event: AgentEvent) -> tuple[str, str]:
+def _describe_child_event(event: AgentEvent) -> tuple[str, str, bool]:
+    """返回 (kind, 全文, is_error)；全文不截断，由存储层控制单条上限。"""
     data = event.data
     if event.type == "tool_call":
         name = getattr(data, "name", "")
         if not name:
-            return "tool_call", ""
+            return "tool_call", "", False
         arguments = getattr(data, "arguments", None) or {}
-        return "tool_call", clip_preview(f"{name}({arguments})")
+        return "tool_call", f"{name}({arguments})", False
     if event.type == "tool_result":
-        prefix = "✗ " if getattr(data, "is_error", False) else ""
-        return "tool_result", clip_preview(f"{prefix}{getattr(data, 'output', '')}")
-    return "message", clip_preview(getattr(data, "content", "") or "")
+        is_error = bool(getattr(data, "is_error", False))
+        return "tool_result", str(getattr(data, "output", "") or ""), is_error
+    return "message", str(getattr(data, "content", "") or ""), False
 
 
 __all__ = ["ProgressSource", "SubAgentProgressEmitter", "clip_preview", "new_run_id"]

@@ -169,6 +169,7 @@ def create_app() -> FastAPI:
         provider_roles,
         providers,
         sessions,
+        sub_agents,
         websocket,
         workspaces,
     )
@@ -186,6 +187,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_completions.router)
     app.include_router(websocket.router)
     app.include_router(sessions.router)
+    app.include_router(sub_agents.router)
     app.include_router(workspaces.router)
     app.include_router(providers.router)
     app.include_router(provider_roles.router)

@@ -18,6 +18,7 @@ describe("subAgentStore", () => {
 
     const run = Object.values(useSubAgentStore.getState().runs)[0];
     expect(run.source).toBe("orchestrate");
+    expect(run.rawRunId).toBe("r1");
     expect(run.total).toBe(2);
     expect(run.doneCount).toBe(1);
     expect(run.message).toBe("编排启动");
@@ -41,6 +42,7 @@ describe("subAgentStore", () => {
 
   it("缺 runId 时按来源兜底聚合且按会话隔离", () => {
     ingest({ type: "sub_agent_spawned", source: "dispatch", total: 1, specs: ["helper"] });
+    expect(Object.values(useSubAgentStore.getState().runs)[0].rawRunId).toBe("");
     useSubAgentStore.getState().ingest("s2", { type: "sub_agent_spawned", source: "dispatch", total: 1, specs: ["other"] });
     const runs = Object.values(useSubAgentStore.getState().runs);
     expect(runs).toHaveLength(2);

@@ -21,6 +21,8 @@ export interface SubAgentEntry {
 
 export interface SubAgentRun {
   runId: string;
+  /** 后端原始 run_id，用于拉取完整转录；WS 事件缺失时为空串 */
+  rawRunId: string;
   sessionId: string;
   source: SubAgentSource;
   startedAt: number;
@@ -101,6 +103,7 @@ export const useSubAgentStore = create<SubAgentState>((set, get) => ({
       ? { ...existing, agents: { ...existing.agents }, order: [...existing.order] }
       : {
           runId: key,
+          rawRunId: p.runId || "",
           sessionId,
           source: p.source ?? "spawn",
           startedAt: Date.now(),
