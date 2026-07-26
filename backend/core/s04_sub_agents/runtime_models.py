@@ -10,7 +10,8 @@ from backend.core.s02_tools import ToolRegistry
 class OrchestratorConfig(BaseModel):
     workspace: str
     default_model: str
-    timeout_per_agent: float = 120.0
+    # 子 agent 自身是带工具循环的 LLM，120s 对真实任务过紧，易产生"看起来随机"的超时失败
+    timeout_per_agent: float = 300.0
     agents_dir: str | None = None
     max_parallel_agents: int = 5
 

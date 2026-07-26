@@ -54,7 +54,8 @@ async def test_registered_spec_rejected_when_not_policy_allowed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_inline_role_in_allowed_specs_still_requires_template() -> None:
+async def test_inline_default_template_rejected_when_templates_configured() -> None:
+    # 配置了模板白名单且不含缺省 generalist 时，未声明 template 的 inline 角色仍被拒。
     queue = FakeQueue()
     execute = _execute(
         queue,
@@ -68,12 +69,13 @@ async def test_inline_role_in_allowed_specs_still_requires_template() -> None:
     result = await execute({"tasks": [{"role": "security-reviewer", "input": "audit"}]})
 
     assert result.is_error is True
-    assert "必须声明 template" in result.output
+    assert "template 未被允许" in result.output
     assert queue.submitted == []
 
 
 @pytest.mark.asyncio
-async def test_inline_role_rejects_empty_resolved_tool_set() -> None:
+async def test_inline_tools_outside_policy_whitelist_rejected() -> None:
+    # allowed_inline_tools 配置了才收紧：请求名单外工具直接在治理层拒绝。
     queue = FakeQueue()
     execute = _execute(
         queue,
@@ -90,7 +92,7 @@ async def test_inline_role_rejects_empty_resolved_tool_set() -> None:
                 {
                     "role": "研究员",
                     "template": "research-specialist",
-                    "tools": ["Read"],
+                    "tools": ["WebSearch"],
                     "input": "调研",
                 }
             ]
@@ -98,5 +100,18 @@ async def test_inline_role_rejects_empty_resolved_tool_set() -> None:
     )
 
     assert result.is_error is True
-    assert "没有可用工具" in result.output
+    assert "工具不在允许范围" in result.output
+    assert queue.submitted == []
+
+
+@pytest.mark.asyncio
+async def test_inline_role_disabled_by_policy() -> None:
+    # allow_inline_roles=False 仍可显式关掉自由角色。
+    queue = FakeQueue()
+    execute = _execute(queue, SubAgentPolicy(allow_inline_roles=False))
+
+    result = await execute({"tasks": [{"role": "研究员", "input": "调研"}]})
+
+    assert result.is_error is True
+    assert "已禁用动态角色" in result.output
     assert queue.submitted == []

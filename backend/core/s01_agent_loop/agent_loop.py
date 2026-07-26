@@ -29,6 +29,7 @@ from .checkpoint import CheckpointFn
 from .agent_loop_approval import AgentLoopApprovalMixin
 from .agent_loop_run import run_agent_loop
 from .message_history import MessageHistory
+from .message_queue import PendingMessageQueue
 from .tool_review import ToolReviewContext
 from .user_config_store import UserConfigStore
 
@@ -100,6 +101,7 @@ class AgentLoop(AgentLoopApprovalMixin):
         self._aborted = False
         self._run_lock = asyncio.Lock()
         self._pending_events: set[asyncio.Task[Any]] = set()
+        self._pending_user_messages = PendingMessageQueue()
 
     def on(self, handler: AgentEventHandler) -> None:
         self._handlers.append(handler)
@@ -155,6 +157,14 @@ class AgentLoop(AgentLoopApprovalMixin):
     @property
     def agent_spec(self) -> AgentSpec | None:
         return self._agent_spec
+
+    def queue_user_message(self, text: str) -> None:
+        """运行中排队一条用户消息（边跑边聊）。
+
+        下轮迭代边界注入历史；模型正要收尾时若有排队消息则继续对话。
+        运行结束后残留的消息会在下一次 run 开头补入。
+        """
+        self._pending_user_messages.push(text)
 
     async def run(self, user_message: str) -> Message:
         # 串行化同一 loop 的 run，兜住 busy 判定的 TOCTOU（本库无同 loop 重入调用故不会死锁）。

@@ -200,7 +200,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       content,
       timestamp: new Date().toISOString(),
     };
-    set((state) => ({ messages: [...state.messages, userMsg], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "thinking", lastError: "" }));
+    // 边跑边聊：运行中发送 = 注入运行中的对话，不清流式内容、不重置状态
+    const steering = ["thinking", "compacting", "tool_calling", "waiting_approval"].includes(get().status);
+    if (steering) {
+      set((state) => ({ messages: [...state.messages, userMsg], lastError: "" }));
+    } else {
+      set((state) => ({ messages: [...state.messages, userMsg], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "thinking", lastError: "" }));
+    }
     const session = get().sessions.find((item) => item.id === sessionId);
     if (!session?.title.trim()) get().updateSessionTitle(sessionId, summarizeSessionTitle(content));
     if (workspace && workspace !== session?.workspace) {

@@ -5,6 +5,8 @@ from typing import Literal, Protocol
 from backend.core.s05_skills.models import SubAgentPolicy
 from backend.core.task_queue import TaskPayload, TaskStatus
 
+from .spawn_agent_templates import DEFAULT_INLINE_TEMPLATE, known_inline_templates
+
 PermissionMode = Literal["readonly", "writable", "readwrite"]
 
 ACTIVE_STATUSES = {TaskStatus.PENDING, TaskStatus.RUNNING}
@@ -39,18 +41,22 @@ class SpawnTaskLike(Protocol):
 
 
 def validate_allowed_specs(tasks: list[SpawnTaskLike], policy: SubAgentPolicy) -> None:
+    """白名单语义：空 = 不限制，配置了条目才收紧。"""
     allowed = {item.strip() for item in policy.allowed_specs if item.strip()}
-    allowed_templates = {item.strip() for item in policy.allowed_inline_templates if item.strip()}
+    configured_templates = {item.strip() for item in policy.allowed_inline_templates if item.strip()}
+    allowed_templates = configured_templates or set(known_inline_templates())
     for task in tasks:
         label = _task_label(task)
         if not label:
             raise SpawnGovernanceError("子 agent 任务必须声明 spec_id 或 role")
         if task.spec_id.strip():
-            if label not in allowed:
-                raise SpawnGovernanceError(f"子 agent role/spec 未在白名单中: {label}")
+            if allowed and label not in allowed:
+                raise SpawnGovernanceError(f"子 agent spec 未在白名单中: {label}")
             continue
         if not policy.allow_inline_roles:
-            raise SpawnGovernanceError(f"子 agent role/spec 未在白名单中: {label}")
+            raise SpawnGovernanceError(
+                f"当前策略已禁用动态角色（allow_inline_roles=false）: {label}"
+            )
         _validate_inline_role(task, policy, allowed_templates)
 
 
@@ -60,9 +66,7 @@ def _validate_inline_role(
     allowed_templates: set[str],
 ) -> None:
     role = task.role.strip()
-    template = task.template.strip()
-    if not template:
-        raise SpawnGovernanceError(f"动态子 agent role 必须声明 template: {role}")
+    template = task.template.strip() or DEFAULT_INLINE_TEMPLATE
     if template not in allowed_templates:
         raise SpawnGovernanceError(f"动态子 agent template 未被允许: {template}")
     if len(role) > policy.role_name_max_length:

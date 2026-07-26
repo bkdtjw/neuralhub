@@ -19,10 +19,12 @@ class AgentCategory(StrEnum):
 
 
 class SubAgentPolicy(BaseModel):
+    # 白名单语义：空列表 = 不限制；配置了条目才收紧（allowed_specs/
+    # allowed_inline_templates/allowed_inline_tools 同此约定）。
     allowed_specs: list[str] = Field(default_factory=list)
     max_concurrent: int = Field(default=5, ge=1)
     max_depth: int = Field(default=1, ge=0)
-    allow_inline_roles: bool = False
+    allow_inline_roles: bool = True
     allowed_inline_templates: list[str] = Field(default_factory=list)
     allowed_inline_tools: list[str] = Field(default_factory=list)
     max_iterations_default: int = Field(default=20, ge=1)

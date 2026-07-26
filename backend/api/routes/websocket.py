@@ -244,7 +244,26 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
                 # 拒绝并发后下方 manager._tasks[session_id] = task 也不会再覆盖存活句柄。
                 task = manager._tasks.get(session_id)
                 if task and not task.done():
-                    await websocket.send_json({"type": "error", "message": "Agent is busy"})
+                    # 边跑边聊：普通聊天 run 忙时把消息排队注入运行中的 loop，
+                    # 迭代边界生效；plan 执行等非 loop 任务仍拒绝并发。
+                    steer_text = str(data.get("message", "")).strip()
+                    running_loop = manager._loops.get(session_id)
+                    if (
+                        steer_text
+                        and running_loop is not None
+                        and manager._plan_runners.get(session_id) is None
+                    ):
+                        running_loop.queue_user_message(steer_text)
+                        logger.info(
+                            "ws_steer_queued",
+                            session_id=session_id,
+                            message_length=len(steer_text),
+                        )
+                        await manager.broadcast(
+                            session_id, {"type": "steered", "message": steer_text}
+                        )
+                    else:
+                        await websocket.send_json({"type": "error", "message": "Agent is busy"})
                     continue
                 loop = manager.get_loop(session_id)
                 settings = await resolve_loop_settings(parse_loop_settings(data), provider_manager)

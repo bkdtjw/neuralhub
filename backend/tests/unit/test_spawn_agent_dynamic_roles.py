@@ -108,7 +108,8 @@ async def test_dynamic_role_uses_template_prompt_tools_and_budget_cap() -> None:
     assert result.is_error is False
     assert data["role"] == "字节研究员"
     assert data["template"] == "research-specialist"
-    assert data["tools"] == ["WebSearch"]
+    # 显式请求的工具即为准（Read 在策略白名单内，不再被模板集吞掉）
+    assert data["tools"] == ["WebSearch", "Read"]
     assert data["max_iterations"] == 15
     assert "只读研究员" in str(data["system_prompt"])
     assert "动态角色：字节研究员" in str(data["system_prompt"])
@@ -130,14 +131,15 @@ async def test_dynamic_role_rejects_unknown_template_before_submit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dynamic_role_requires_template_before_submit() -> None:
+async def test_dynamic_role_default_template_rejected_when_templates_configured() -> None:
+    # 缺省 template 回退 generalist；策略配置了模板白名单且不含 generalist 时仍拒绝。
     queue = FakeQueue([(TaskStatus.SUCCEEDED, "done")])
     _, execute = _tool(queue)
 
     result = await execute({"tasks": [{"role": "阿里研究员", "input": "调研阿里"}]})
 
     assert result.is_error is True
-    assert "必须声明 template" in result.output
+    assert "template 未被允许: generalist" in result.output
     assert queue.submitted == []
 
 
