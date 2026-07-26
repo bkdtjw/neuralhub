@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Server } from "lucide-react";
+import EmptyState from "@/components/common/EmptyState";
 import TokenUsagePanel from "@/components/settings/TokenUsagePanel";
 import ProviderModal from "@/components/settings/ProviderModal";
 import { api } from "@/lib/api-client";
@@ -79,6 +81,18 @@ export default function Settings() {
             </div>
             {loading ? <div className="text-sm text-[var(--as-text-secondary)]">加载中...</div> : null}
             {error ? <div className="mb-3 rounded border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+            {!loading && !error && !providers.length ? (
+              <div className="flex justify-center py-14">
+                <div className="w-full max-w-[420px]">
+                  <EmptyState
+                    icon={Server}
+                    title="还没有配置 Provider"
+                    description="添加一个 LLM Provider，NeuralHub 才能连接模型开始对话"
+                    action={{ label: "添加第一个 Provider", onClick: openAdd }}
+                  />
+                </div>
+              </div>
+            ) : null}
             <div className="space-y-3">
               {providers.map((provider) => {
                 const status = provider.isDefault ? { dot: "bg-emerald-500", text: "默认" } : provider.enabled ? { dot: "bg-[var(--as-text-muted)]", text: "启用" } : { dot: "bg-red-500", text: "禁用" };

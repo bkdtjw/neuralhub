@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Code2, Search, WandSparkles, type LucideIcon } from "lucide-react";
+import { Bot, Code2, Plug, Search, WandSparkles, type LucideIcon } from "lucide-react";
 import { useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 
 import InputBar from "@/components/chat/InputBar";
+import EmptyState from "@/components/common/EmptyState";
 import MessageList from "@/components/chat/MessageList";
 import SubAgentPanel from "@/components/chat/SubAgentPanel";
 import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
@@ -151,7 +152,11 @@ export default function Session() {
           {hasMessages ? (
             <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
           ) : (
-            <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendInSession(prompt)} />
+            <EmptySessionState
+              configured={Boolean(currentProviderId && currentModel)}
+              enabled={suggestionsEnabled}
+              onPick={(prompt) => void sendInSession(prompt)}
+            />
           )}
           <div className="absolute bottom-10 left-0 right-0 px-6">
             <InputBar status={status} onSend={(text, options) => void sendInSession(text, options)} onAbort={abortRun} compact />
@@ -177,27 +182,52 @@ export default function Session() {
   );
 }
 
-function EmptySessionState({ enabled, onPick }: { enabled: boolean; onPick: (prompt: string) => void }) {
+function EmptySessionState({
+  configured,
+  enabled,
+  onPick,
+}: {
+  configured: boolean;
+  enabled: boolean;
+  onPick: (prompt: string) => void;
+}) {
+  const navigate = useNavigate();
+  if (!configured) {
+    return (
+      <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+        <div className="w-full max-w-[400px]">
+          <EmptyState
+            icon={Plug}
+            title="尚未配置模型 Provider"
+            description="先添加一个 LLM Provider 并选择模型，即可开始对话"
+            action={{ label: "前往设置", onClick: () => navigate("/settings") }}
+          />
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
       <div className="w-full max-w-[620px] text-center">
-        <div className="mt-5 grid gap-2 sm:grid-cols-3">
-          {EMPTY_SUGGESTIONS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.label}
-                type="button"
-                disabled={!enabled}
-                onClick={() => onPick(item.prompt)}
-                className="group rounded-[11px] border border-[var(--as-border)] bg-[var(--as-surface-low)] p-3 text-left text-[12px] text-[var(--as-text-secondary)] transition hover:-translate-y-0.5 hover:border-[var(--as-border-strong)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-              >
-                <Icon size={15} className="mb-2 text-[var(--as-accent)]" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        <EmptyState icon={Bot} title="NeuralHub" description="选一个开场，或直接输入你的任务">
+          <div className="mt-5 grid w-full gap-2 sm:grid-cols-3">
+            {EMPTY_SUGGESTIONS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  disabled={!enabled}
+                  onClick={() => onPick(item.prompt)}
+                  className="group rounded-[11px] border border-[var(--as-border)] bg-[var(--as-surface-low)] p-3 text-left text-[12px] text-[var(--as-text-secondary)] transition hover:-translate-y-0.5 hover:border-[var(--as-border-strong)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                >
+                  <Icon size={15} className="mb-2 text-[var(--as-accent)]" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </EmptyState>
       </div>
     </main>
   );

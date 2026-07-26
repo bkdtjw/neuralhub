@@ -1,4 +1,5 @@
-import { memo } from "react";
+import { memo, useState } from "react";
+import { Check, Copy } from "lucide-react";
 
 import MarkdownContent from "@/components/chat/MarkdownContent";
 import ReasoningBlock from "@/components/chat/ReasoningBlock";
@@ -17,6 +18,18 @@ const resultForCall = (results: ToolResult[] | undefined, callId: string, index:
 };
 
 function MessageBubble({ message, isRunning = false, isStreaming = false }: MessageBubbleProps) {
+  // 复制整段原始 content：参照代码块复制按钮的 copied 反馈模式。
+  const [copied, setCopied] = useState(false);
+  const copyContent = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   if (message.role === "tool") return null;
 
   const isUser = message.role === "user";
@@ -28,7 +41,22 @@ function MessageBubble({ message, isRunning = false, isStreaming = false }: Mess
           <MarkdownContent content={message.content} />
         </div>
       ) : (
-        <div className="grid w-full max-w-[680px] grid-cols-[28px_minmax(0,1fr)] gap-3">
+        <div className="group relative grid w-full max-w-[680px] grid-cols-[28px_minmax(0,1fr)] gap-3">
+          {message.content ? (
+            <button
+              type="button"
+              onClick={() => void copyContent()}
+              title="复制整段回复"
+              aria-label="复制整段回复"
+              className={`absolute right-0 top-0 z-10 rounded-md p-1.5 transition hover:bg-[var(--as-hover)] ${
+                copied
+                  ? "text-[var(--as-success)] opacity-100"
+                  : "text-[var(--as-text-muted)] opacity-0 hover:text-[var(--as-text)] group-hover:opacity-100"
+              }`}
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+          ) : null}
           <div className="h-7 w-7 rounded-xl bg-[linear-gradient(135deg,#3b82f6,#8b5cf6)] shadow-[0_4px_14px_rgb(99_102_241_/_40%),inset_0_1px_0_rgb(255_255_255_/_30%)]" />
           <div className="min-w-0 border-l border-white/[0.08] pl-4">
             <ReasoningBlock
