@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 import CacheHitTrend from "@/components/observability/CacheHitTrend";
 import MetricCard from "@/components/observability/MetricCard";
+import MetricsSkeleton from "@/components/observability/MetricsSkeleton";
 import MetricsTrend from "@/components/observability/MetricsTrend";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { api } from "@/lib/api-client";
@@ -49,19 +51,18 @@ export default function Metrics() {
   const [days, setDays] = useState(7);
   const [summary, setSummary] = useState<MetricsSummary>(emptySummary(7));
   const [latency, setLatency] = useState<LatencySummary>(emptyLatency());
-  const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
+  // 加载态拆分：firstLoad=从未成功加载过（渲骨架）；refreshing=切时间范围就地刷新（现有内容降透明+角落 spinner）。
+  const [firstLoad, setFirstLoad] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    const load = async (showLoading: boolean) => {
+    const load = async (mode: "first" | "refresh" | "silent") => {
       try {
-        if (showLoading) {
-          setLoading(true);
-          setLoaded(false);
-        }
+        if (mode === "refresh") setRefreshing(true);
         setError("");
         const [metricsSummary, latencySummary] = await Promise.all([
           api.getMetricsSummary(days),
@@ -70,17 +71,19 @@ export default function Metrics() {
         if (cancelled) return;
         setSummary(metricsSummary);
         setLatency(latencySummary);
-        setLoaded(true);
+        loadedRef.current = true;
+        setFirstLoad(false);
       } catch (err) {
         if (cancelled) return;
         setError((err as Error).message || "加载指标失败");
       } finally {
-        if (!cancelled && showLoading) setLoading(false);
+        if (!cancelled && mode === "refresh") setRefreshing(false);
       }
     };
 
-    void load(true);
-    const timer = window.setInterval(() => void load(false), REFRESH_INTERVAL_MS);
+    // 首载渲骨架；已有内容时（切时间范围）就地刷新，不整页闪回骨架、不丢滚动位置。
+    void load(loadedRef.current ? "refresh" : "first");
+    const timer = window.setInterval(() => void load("silent"), REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -128,7 +131,10 @@ export default function Metrics() {
             <p className="mt-2 max-w-2xl text-sm text-[#9aa7b2]">这里直接读 Redis 指标汇总，适合快速看调用量、失败量和 Token 消耗。</p>
           </div>
           <label className="text-sm text-[#9aa7b2]">
-            <span className="mb-2 block">时间范围</span>
+            <span className="mb-2 flex items-center gap-2">
+              时间范围
+              {refreshing ? <Loader2 size={14} className="animate-spin" /> : null}
+            </span>
             <select value={days} onChange={(event) => setDays(Number(event.target.value))} className="rounded-2xl border border-[#2c2c2c] bg-[#050505] px-4 py-3 text-sm text-[#f0f6fc]">
               {dayOptions.map((value) => (
                 <option key={value} value={value}>
@@ -141,53 +147,38 @@ export default function Metrics() {
 
         {error ? <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
 
-        {loading ? (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }, (_, index) => (
-              <div key={index} className="h-[136px] animate-pulse rounded-2xl border border-[#252525] bg-[#101010]" />
-            ))}
-          </section>
-        ) : null}
-
-        {!loading && loaded ? (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {cards.map((card) => (
-              <MetricCard
-                key={card.title}
-                title={card.title}
-                value={typeof card.value === "number" ? formatCompact(card.value) : card.value}
-                note={card.note}
-                tone={card.tone}
-              />
-            ))}
-          </section>
-        ) : null}
-
-        {loading ? (
-          <div className="h-[300px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" />
-        ) : loaded ? (
-          <MetricsTrend labels={labels} agentRuns={agentRuns} llmCalls={llmCalls} />
-        ) : null}
-
-        {loading ? (
-          <div className="h-[300px] animate-pulse rounded-3xl border border-[#252525] bg-[#101010]" />
-        ) : loaded ? (
-          <CacheHitTrend labels={labels} hitTokens={cacheHits} missTokens={cacheMisses} />
-        ) : null}
-
-        {!loading && loaded && latencyCards.length ? (
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {latencyCards.map((card) => (
-              <MetricCard
-                key={card.key}
-                title={card.title}
-                value={card.value}
-                note={card.note}
-                tone={card.tone}
-              />
-            ))}
-          </section>
-        ) : null}
+        {firstLoad ? (
+          <MetricsSkeleton />
+        ) : (
+          <div className={`flex flex-col gap-6 transition-opacity duration-200 ${refreshing ? "opacity-60" : ""}`}>
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {cards.map((card) => (
+                <MetricCard
+                  key={card.title}
+                  title={card.title}
+                  value={typeof card.value === "number" ? formatCompact(card.value) : card.value}
+                  note={card.note}
+                  tone={card.tone}
+                />
+              ))}
+            </section>
+            <MetricsTrend labels={labels} agentRuns={agentRuns} llmCalls={llmCalls} />
+            <CacheHitTrend labels={labels} hitTokens={cacheHits} missTokens={cacheMisses} />
+            {latencyCards.length ? (
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {latencyCards.map((card) => (
+                  <MetricCard
+                    key={card.key}
+                    title={card.title}
+                    value={card.value}
+                    note={card.note}
+                    tone={card.tone}
+                  />
+                ))}
+              </section>
+            ) : null}
+          </div>
+        )}
       </section>
     </div>
   );

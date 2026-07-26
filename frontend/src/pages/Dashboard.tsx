@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Code2, Search, Sparkles, WandSparkles } from "lucide-react";
 
@@ -22,6 +22,9 @@ export default function Dashboard() {
   useDocumentTitle("总览");
   const navigate = useNavigate();
   const [startError, setStartError] = useState("");
+  // in-flight 保护：ref 挡同一渲染帧内的连点（state 更新是异步的），state 驱动按钮禁用视觉。
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
   const createSession = useSessionStore((state) => state.createSession);
   const startDraftSession = useSessionStore((state) => state.startDraftSession);
   const model = useAgentStore((state) => state.currentModel);
@@ -42,18 +45,23 @@ export default function Dashboard() {
 
   const startChat = async (prompt?: string, options?: ChatRunOptions) => {
     const content = prompt?.trim() ?? "";
-    if (!content) return;
+    if (!content || startingRef.current) return;
     setStartError("");
     if (!providerId || !model) {
       navigate("/settings");
       return;
     }
+    startingRef.current = true;
+    setStarting(true);
     try {
       const id = await createSession(model, providerId, content);
       navigate(`/session/${id}`, { state: { initialPrompt: content, ...options } });
     } catch (error) {
       console.error("create session failed", error);
       setStartError(error instanceof Error && error.message ? error.message : "创建会话失败，请稍后重试");
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
     }
   };
 
@@ -96,7 +104,7 @@ export default function Dashboard() {
                 <button
                   key={item.text}
                   type="button"
-                  disabled={!providers.length}
+                  disabled={!providers.length || starting}
                   onClick={() => void startChat(item.prompt)}
                   className="group rounded-[11px] border border-[#1f1f26] bg-[var(--as-surface-low)] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#2b2b31] hover:bg-[var(--as-surface)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -109,9 +117,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="absolute bottom-10 left-0 right-0 px-6">
+      <div className={`absolute bottom-10 left-0 right-0 px-6 transition-opacity ${starting ? "pointer-events-none opacity-60" : ""}`}>
         {startError ? (
-          <div className="mx-auto mb-2 w-full max-w-[1120px] text-center text-[12px] text-[#ff7b72]">{startError}</div>
+          <div className="mx-auto mb-2 w-full max-w-[1120px] text-center text-[12px] text-[var(--as-danger)]">{startError}</div>
         ) : null}
         <InputBar status="idle" onSend={(text, options) => void startChat(text, options)} onAbort={() => {}} compact />
       </div>

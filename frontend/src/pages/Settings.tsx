@@ -22,6 +22,9 @@ export default function Settings() {
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
+  // per-id in-flight 保护：设为默认/删除进行中禁用该卡片操作，失败在卡片内红字反馈。
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
   const refreshAgentProviders = useAgentStore((state) => state.loadProviders);
   const loadProviders = async () => {
     try {
@@ -39,6 +42,19 @@ export default function Settings() {
   useEffect(() => {
     void loadProviders();
   }, []);
+  const runProviderAction = async (id: string, action: () => Promise<unknown>, failText: string) => {
+    if (pendingId) return;
+    setPendingId(id);
+    setCardErrors((prev) => ({ ...prev, [id]: "" }));
+    try {
+      await action();
+      await loadProviders();
+    } catch (err) {
+      setCardErrors((prev) => ({ ...prev, [id]: `${failText}: ${(err as Error).message}` }));
+    } finally {
+      setPendingId(null);
+    }
+  };
   const openAdd = () => {
     setEditing(null);
     setModalOpen(true);
@@ -84,6 +100,7 @@ export default function Settings() {
             <div className="space-y-3">
               {providers.map((provider) => {
                 const status = provider.isDefault ? { dot: "bg-emerald-500", text: "默认" } : provider.enabled ? { dot: "bg-[var(--as-text-muted)]", text: "启用" } : { dot: "bg-red-500", text: "禁用" };
+                const pending = pendingId === provider.id;
                 return (
                   <div key={provider.id} className="rounded-lg border border-[var(--as-border)] bg-[var(--as-surface)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -101,9 +118,10 @@ export default function Settings() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button type="button" onClick={() => void api.testProvider(provider.id).then((r) => alert(r.ok ? `连接成功 (${r.latency_ms}ms)` : `连接失败: ${r.message}`)).catch((e) => alert(`连接失败: ${String((e as Error).message)}`))} className="rounded-md border border-[var(--as-border-strong)] px-3 py-1.5 text-xs hover:bg-[var(--as-hover)]">测试连接</button>
                       <button type="button" onClick={() => openEdit(provider)} className="rounded-md border border-[var(--as-border-strong)] px-3 py-1.5 text-xs hover:bg-[var(--as-hover)]">编辑</button>
-                      <button type="button" onClick={() => void api.setDefault(provider.id).then(loadProviders)} className="rounded-md border border-[var(--as-border-strong)] px-3 py-1.5 text-xs hover:bg-[var(--as-hover)]">设为默认</button>
-                      <button type="button" onClick={() => void (window.confirm(`确认删除 ${provider.name} ?`) && api.deleteProvider(provider.id).then(loadProviders))} className="rounded border border-red-500/60 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10">删除</button>
+                      <button type="button" disabled={pending} onClick={() => void runProviderAction(provider.id, () => api.setDefault(provider.id), "设为默认失败")} className="rounded-md border border-[var(--as-border-strong)] px-3 py-1.5 text-xs hover:bg-[var(--as-hover)] disabled:cursor-not-allowed disabled:opacity-50">设为默认</button>
+                      <button type="button" disabled={pending} onClick={() => { if (window.confirm(`确认删除 ${provider.name} ?`)) void runProviderAction(provider.id, () => api.deleteProvider(provider.id), "删除失败"); }} className="rounded border border-red-500/60 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50">删除</button>
                     </div>
+                    {cardErrors[provider.id] ? <div className="mt-2 text-xs text-[var(--as-danger)]">{cardErrors[provider.id]}</div> : null}
                   </div>
                 );
               })}

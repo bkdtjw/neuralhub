@@ -44,6 +44,9 @@ export default function ProviderModal({ isOpen, editing, onClose, onSaved }: Pro
   const [detecting, setDetecting] = useState(false);
   const [detected, setDetected] = useState<string[]>([]);
   const [detectState, setDetectState] = useState<Hint | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; baseUrl?: string }>({});
   useEffect(() => {
     if (!isOpen) return;
     setForm(toForm(editing));
@@ -51,6 +54,9 @@ export default function ProviderModal({ isOpen, editing, onClose, onSaved }: Pro
     setDetecting(false);
     setDetected([]);
     setDetectState(null);
+    setSaving(false);
+    setSaveError("");
+    setFieldErrors({});
   }, [isOpen, editing]);
   const selected = parseModels(form.availableModels);
   const toggleModel = (model: string) => {
@@ -90,7 +96,16 @@ export default function ProviderModal({ isOpen, editing, onClose, onSaved }: Pro
       setDetecting(false);
     }
   };
+  const validate = (): boolean => {
+    const errors: { name?: string; baseUrl?: string } = {};
+    if (!form.name.trim()) errors.name = "名称不能为空";
+    // claude_code 类型允许 Base URL 留空（= PATH 中的 claude CLI），其余类型必填。
+    if (!form.baseUrl.trim() && form.providerType !== "claude_code") errors.baseUrl = "API Base URL 不能为空";
+    setFieldErrors(errors);
+    return !Object.keys(errors).length;
+  };
   const saveProvider = async () => {
+    if (saving || !validate()) return;
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       provider_type: form.providerType,
@@ -100,13 +115,17 @@ export default function ProviderModal({ isOpen, editing, onClose, onSaved }: Pro
       enabled: form.enabled,
     };
     if (form.apiKey.trim() || !editing) payload.api_key = form.apiKey.trim();
+    setSaving(true);
+    setSaveError("");
     try {
       if (editing) await api.updateProvider(editing.id, payload);
       else await api.addProvider(payload);
       onClose();
       await onSaved();
     } catch (err) {
-      setTestState({ ok: false, message: `保存失败: ${(err as Error).message}` });
+      setSaveError(`保存失败: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
     }
   };
   const inputCls = "w-full rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 py-2";
@@ -116,16 +135,19 @@ export default function ProviderModal({ isOpen, editing, onClose, onSaved }: Pro
       title={editing ? "编辑 Provider" : "添加 Provider"}
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-[var(--as-border-strong)] px-4 py-2 text-sm hover:bg-[var(--as-hover)]">取消</button>
-          <button type="button" onClick={() => void saveProvider()} className="as-primary-btn px-4 py-2 text-sm">保存</button>
+        <div className="space-y-2">
+          {saveError ? <div className="text-right text-xs text-[var(--as-danger)]">{saveError}</div> : null}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="rounded-md border border-[var(--as-border-strong)] px-4 py-2 text-sm hover:bg-[var(--as-hover)]">取消</button>
+            <button type="button" disabled={saving} onClick={() => void saveProvider()} className="as-primary-btn px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">{saving ? "保存中…" : "保存"}</button>
+          </div>
         </div>
       }
     >
       <div className="space-y-3 text-sm">
         <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">Provider 类型</span><select value={form.providerType} onChange={(e) => setForm((f) => ({ ...f, providerType: e.target.value }))} className={inputCls}><option value="openai_compat">OpenAI Compatible</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama</option><option value="claude_code">Claude Code（本机 CLI）</option></select></label>
-        <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">名称</span><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={inputCls} /></label>
-        <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">API Base URL</span><input value={form.baseUrl} onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))} className={`${inputCls} font-mono`} placeholder={form.providerType === "claude_code" ? "留空 = PATH 中的 claude，可填 CLI 绝对路径" : ""} /></label>
+        <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">名称</span><input value={form.name} onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); setFieldErrors((fe) => ({ ...fe, name: undefined })); }} className={inputCls} />{fieldErrors.name ? <span className="mt-1 block text-xs text-[var(--as-danger)]">{fieldErrors.name}</span> : null}</label>
+        <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">API Base URL</span><input value={form.baseUrl} onChange={(e) => { setForm((f) => ({ ...f, baseUrl: e.target.value })); setFieldErrors((fe) => ({ ...fe, baseUrl: undefined })); }} className={`${inputCls} font-mono`} placeholder={form.providerType === "claude_code" ? "留空 = PATH 中的 claude，可填 CLI 绝对路径" : ""} />{fieldErrors.baseUrl ? <span className="mt-1 block text-xs text-[var(--as-danger)]">{fieldErrors.baseUrl}</span> : null}</label>
         <label className="block"><span className="mb-1 block text-[var(--as-text-secondary)]">API Key</span><input type="password" value={form.apiKey} onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))} className={`${inputCls} font-mono`} placeholder={form.providerType === "claude_code" ? "无需填写（走本机订阅登录态）" : editing ? "留空表示不修改" : ""} /></label>
         <div>
           <div className="flex items-center gap-3">
