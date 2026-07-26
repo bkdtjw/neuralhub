@@ -13,6 +13,7 @@ export default function Knowledge() {
   const uploading = useKnowledgeStore((state) => state.uploading);
   const error = useKnowledgeStore((state) => state.error);
   const loadAll = useKnowledgeStore((state) => state.loadAll);
+  const stopPolling = useKnowledgeStore((state) => state.stopPolling);
   const createBase = useKnowledgeStore((state) => state.createBase);
   const renameCurrentBase = useKnowledgeStore((state) => state.renameCurrentBase);
   const setCurrentKbId = useKnowledgeStore((state) => state.setCurrentKbId);
@@ -21,7 +22,9 @@ export default function Knowledge() {
 
   useEffect(() => {
     void loadAll();
-  }, [loadAll]);
+    // 离开页面时停掉文档新鲜度轮询，防止后台空转泄漏。
+    return () => stopPolling();
+  }, [loadAll, stopPolling]);
 
   const create = async () => {
     const name = window.prompt("新知识库名称");
