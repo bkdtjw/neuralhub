@@ -10,6 +10,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const sessions = useSessionStore((state) => state.sessions);
+  const sessionsLoading = useSessionStore((state) => state.sessionsLoading);
   const currentSessionId = useSessionStore((state) => state.currentSessionId);
   const loadSessions = useSessionStore((state) => state.loadSessions);
   const startDraftSession = useSessionStore((state) => state.startDraftSession);
@@ -95,6 +96,7 @@ export default function Sidebar() {
         <SessionList
           sessions={visibleSessions}
           currentSessionId={currentSessionId}
+          loading={sessionsLoading}
           onSelect={(id) => {
             selectSession(id);
             navigate(`/session/${id}`);

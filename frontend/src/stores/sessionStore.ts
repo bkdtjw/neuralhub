@@ -19,6 +19,10 @@ interface SessionState {
   pendingApprovals: ToolCall[];
   lastError: string;
   connectionState: ConnectionState;
+  /** 会话列表首次加载中：侧栏渲骨架而非闪「暂无会话」；首载完成后永远为 false。 */
+  sessionsLoading: boolean;
+  /** 会话详情拉取中：Session 页在无消息时渲消息骨架而非空状态建议卡。 */
+  hydrating: boolean;
   loadSessions: () => Promise<void>;
   createSession: (model: string, providerId?: string, title?: string) => Promise<string>;
   startDraftSession: () => void;
@@ -102,13 +106,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   pendingApprovals: [],
   lastError: "",
   connectionState: "connected",
+  sessionsLoading: true,
+  hydrating: false,
   loadSessions: async () => {
     try {
       const sessions = mergeSessionsMeta(await api.listSessions());
       const hasCurrent = get().currentSessionId && sessions.some((item) => item.id === get().currentSessionId);
-      set({ sessions, currentSessionId: hasCurrent ? get().currentSessionId : null });
+      set({ sessions, currentSessionId: hasCurrent ? get().currentSessionId : null, sessionsLoading: false });
     } catch (error) {
       console.error("loadSessions failed", error);
+      set({ sessionsLoading: false });
     }
   },
   createSession: async (model: string, providerId?: string, title?: string) => {
@@ -127,12 +134,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       pendingApprovals: [],
       status: "idle",
       lastError: "",
+      hydrating: false,
     }));
     return nextSession.id;
   },
-  startDraftSession: () => set({ currentSessionId: null, messages: [], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "idle", lastError: "" }),
+  startDraftSession: () => set({ currentSessionId: null, messages: [], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "idle", lastError: "", hydrating: false }),
   selectSession: (id: string) => {
-    set({ currentSessionId: id, messages: [], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "idle", lastError: "" });
+    set({ currentSessionId: id, messages: [], streamingText: "", streamingReasoning: "", pendingApprovals: [], status: "idle", lastError: "", hydrating: true });
     void (async () => {
       try {
         const detail = asRecord(await api.getSession(id));
@@ -149,11 +157,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set((state) => ({
           messages,
           status: asStatus(detail.status),
+          hydrating: false,
           sessions: patchSession(state.sessions, id, { title: nextTitle, workspace: nextWorkspace }),
         }));
       } catch (error) {
         console.error("selectSession failed", error);
-        set({ status: "error" });
+        // 会话已切走时不落地错误态/加载态，避免写脏当前会话。
+        if (get().currentSessionId !== id) return;
+        set({ status: "error", hydrating: false });
       }
     })();
   },
@@ -172,6 +183,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         pendingApprovals: wasCurrent ? [] : state.pendingApprovals,
         status: wasCurrent ? "idle" : state.status,
         lastError: wasCurrent ? "" : state.lastError,
+        hydrating: wasCurrent ? false : state.hydrating,
       };
     });
   },

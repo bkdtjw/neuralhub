@@ -185,6 +185,70 @@ describe("sessionStore resync（F4：断线重连后非破坏性补偿）", () =
   });
 });
 
+describe("sessionStore hydrating（批次5：会话详情加载态，刷新不闪空状态）", () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: [session], currentSessionId: null, messages: [], status: "idle", hydrating: false });
+  });
+
+  it("selectSession 立即置 hydrating=true，详情返回后置 false 并填充消息", async () => {
+    let resolveDetail: (value: Record<string, unknown>) => void = () => undefined;
+    const spy = vi.spyOn(api, "getSession").mockReturnValue(new Promise<Record<string, unknown>>((resolve) => { resolveDetail = resolve; }));
+    useSessionStore.getState().selectSession("s1");
+    expect(useSessionStore.getState().hydrating).toBe(true);
+    resolveDetail({ title: "已有标题", status: "done", messages: [{ id: "m1", role: "user", content: "hi", timestamp: "t1" }] });
+    await vi.waitFor(() => expect(useSessionStore.getState().hydrating).toBe(false));
+    expect(useSessionStore.getState().messages.map((item) => item.id)).toEqual(["m1"]);
+    spy.mockRestore();
+  });
+
+  it("selectSession 失败时 hydrating 置 false 且 status=error（不会永远骨架）", async () => {
+    const spy = vi.spyOn(api, "getSession").mockRejectedValue(new Error("backend down"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    useSessionStore.getState().selectSession("s1");
+    expect(useSessionStore.getState().hydrating).toBe(true);
+    await vi.waitFor(() => expect(useSessionStore.getState().hydrating).toBe(false));
+    expect(useSessionStore.getState().status).toBe("error");
+    spy.mockRestore();
+    err.mockRestore();
+  });
+
+  it("详情返回前切走会话（如新建草稿）：迟到的结果不写脏当前会话的加载态与消息", async () => {
+    let resolveDetail: (value: Record<string, unknown>) => void = () => undefined;
+    const spy = vi.spyOn(api, "getSession").mockReturnValue(new Promise<Record<string, unknown>>((resolve) => { resolveDetail = resolve; }));
+    useSessionStore.getState().selectSession("s1");
+    useSessionStore.getState().startDraftSession();
+    expect(useSessionStore.getState().hydrating).toBe(false);
+    resolveDetail({ title: "已有标题", status: "done", messages: [{ id: "m1", role: "user", content: "hi", timestamp: "t1" }] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useSessionStore.getState().hydrating).toBe(false);
+    expect(useSessionStore.getState().messages).toEqual([]);
+    spy.mockRestore();
+  });
+});
+
+describe("sessionStore sessionsLoading（批次5：会话列表首载骨架，不闪「暂无会话」）", () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: [], currentSessionId: null, sessionsLoading: true });
+  });
+
+  it("loadSessions 成功后置 false（骨架→列表）", async () => {
+    const spy = vi.spyOn(api, "listSessions").mockResolvedValue([session]);
+    await useSessionStore.getState().loadSessions();
+    expect(useSessionStore.getState().sessionsLoading).toBe(false);
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1"]);
+    spy.mockRestore();
+  });
+
+  it("loadSessions 失败同样置 false（回落到空状态，绝不永远骨架）", async () => {
+    const spy = vi.spyOn(api, "listSessions").mockRejectedValue(new Error("backend down"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await useSessionStore.getState().loadSessions();
+    expect(useSessionStore.getState().sessionsLoading).toBe(false);
+    spy.mockRestore();
+    err.mockRestore();
+  });
+});
+
 describe("sessionStore connectionState（F4：连接状态指示）", () => {
   beforeEach(() => {
     useSessionStore.setState({ connectionState: "connected" });

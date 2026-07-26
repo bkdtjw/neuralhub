@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Code2, Search, WandSparkles, type LucideIcon } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 
+import ConnectionBanner from "@/components/chat/ConnectionBanner";
+import EmptySessionState from "@/components/chat/EmptySessionState";
 import InputBar from "@/components/chat/InputBar";
 import MessageList from "@/components/chat/MessageList";
+import MessageSkeleton from "@/components/chat/MessageSkeleton";
 import SubAgentPanel from "@/components/chat/SubAgentPanel";
 import KnowledgeStatusPill from "@/components/knowledge/KnowledgeStatusPill";
 import { agentWs } from "@/lib/websocket";
@@ -13,12 +16,6 @@ import { useAgentStore } from "@/stores/agentStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { isRunActive, useSubAgentStore } from "@/stores/subAgentStore";
 import type { ChatRunOptions } from "@/types";
-
-const EMPTY_SUGGESTIONS: { icon: LucideIcon; label: string; prompt: string }[] = [
-  { icon: Code2, label: "梳理当前项目结构", prompt: "请先阅读当前项目结构，告诉我主要模块和入口文件。" },
-  { icon: Search, label: "定位一个问题", prompt: "请帮我定位一个前端问题，先读相关代码再给出修复方案。" },
-  { icon: WandSparkles, label: "实现一个改动", prompt: "请根据现有代码风格，实现一个小改动并完成验证。" },
-];
 
 export default function Session() {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +31,7 @@ export default function Session() {
   const currentSessionId = useSessionStore((state) => state.currentSessionId);
   const abortRun = useSessionStore((state) => state.abortRun);
   const connectionState = useSessionStore((state) => state.connectionState);
+  const hydrating = useSessionStore((state) => state.hydrating);
   const currentModel = useAgentStore((state) => state.currentModel);
   const currentProviderId = useAgentStore((state) => state.currentProviderId);
   const providers = useAgentStore((state) => state.providers);
@@ -150,6 +148,9 @@ export default function Session() {
         <div className="relative flex min-h-0 flex-1 flex-col">
           {hasMessages ? (
             <MessageList messages={messages} status={status} streamingText={streamingText} streamingReasoning={streamingReasoning} />
+          ) : hydrating ? (
+            // 会话详情拉取中：渲消息骨架，避免刷新已有会话时先闪一屏空状态建议卡。
+            <MessageSkeleton />
           ) : (
             <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendInSession(prompt)} />
           )}
@@ -173,51 +174,6 @@ export default function Session() {
           />
         </div>
       </div>
-    </div>
-  );
-}
-
-function EmptySessionState({ enabled, onPick }: { enabled: boolean; onPick: (prompt: string) => void }) {
-  return (
-    <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-      <div className="w-full max-w-[620px] text-center">
-        <div className="mt-5 grid gap-2 sm:grid-cols-3">
-          {EMPTY_SUGGESTIONS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.label}
-                type="button"
-                disabled={!enabled}
-                onClick={() => onPick(item.prompt)}
-                className="group rounded-[11px] border border-[var(--as-border)] bg-[var(--as-surface-low)] p-3 text-left text-[12px] text-[var(--as-text-secondary)] transition hover:-translate-y-0.5 hover:border-[var(--as-border-strong)] hover:bg-[var(--as-hover)] hover:text-[var(--as-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-              >
-                <Icon size={15} className="mb-2 text-[var(--as-accent)]" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function ConnectionBanner({ state, onReconnect }: { state: "reconnecting" | "disconnected"; onReconnect: () => void }) {
-  const reconnecting = state === "reconnecting";
-  return (
-    <div className="flex shrink-0 items-center justify-center gap-2.5 border-b border-[var(--as-border)] bg-[var(--as-surface)] px-5 py-1.5 text-[12px]">
-      <span className={`h-1.5 w-1.5 rounded-full bg-[var(--as-danger)] ${reconnecting ? "animate-pulse" : ""}`} />
-      <span className="text-[var(--as-text-secondary)]">{reconnecting ? "连接已断开，正在重连…" : "连接已断开"}</span>
-      {reconnecting ? null : (
-        <button
-          type="button"
-          onClick={onReconnect}
-          className="rounded-md border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-2 py-0.5 text-[11px] text-[var(--as-text)] transition hover:border-[var(--as-accent)] hover:text-[var(--as-accent-soft)]"
-        >
-          点击重连
-        </button>
-      )}
     </div>
   );
 }

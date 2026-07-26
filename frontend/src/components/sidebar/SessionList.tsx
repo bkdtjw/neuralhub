@@ -6,6 +6,7 @@ import type { Session } from "@/types";
 interface SessionListProps {
   sessions: Session[];
   currentSessionId: string | null;
+  loading?: boolean;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -135,8 +136,19 @@ function TimeGroup({
   );
 }
 
-export default function SessionList({ sessions, currentSessionId, onSelect, onDelete }: SessionListProps) {
+export default function SessionList({ sessions, currentSessionId, loading = false, onSelect, onDelete }: SessionListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  // 首次加载中渲骨架灰条，而不是闪「暂无会话」。
+  if (loading && !sessions.length) {
+    return (
+      <div aria-hidden className="space-y-1.5 px-1 py-2">
+        {Array.from({ length: 3 }, (_, index) => (
+          <div key={index} className="h-8 animate-pulse rounded-xl bg-white/[0.05]" />
+        ))}
+      </div>
+    );
+  }
 
   if (!sessions.length) {
     return <div className="px-3 py-6 text-xs text-[var(--as-text-subtle)]">暂无会话</div>;
