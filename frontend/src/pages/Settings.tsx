@@ -11,6 +11,7 @@ const typeLabel: Record<string, string> = {
   openai_compat: "OpenAI Compatible",
   anthropic: "Anthropic",
   ollama: "Ollama",
+  claude_code: "Claude Code",
 };
 export default function Settings() {
   const [section, setSection] = useState<SettingsSection>("providers");

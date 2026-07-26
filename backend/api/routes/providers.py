@@ -30,6 +30,7 @@ _PROVIDER_ALIASES = {
     "openai_compatible": "openai_compat",
     "claude_compat": "anthropic",
     "anthropic_compat": "anthropic",
+    "claude-code": "claude_code",
 }
 
 
