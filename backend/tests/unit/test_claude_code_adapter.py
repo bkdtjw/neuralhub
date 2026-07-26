@@ -22,7 +22,7 @@ _CLI_RESULT = {
     "total_cost_usd": 0.51,
     "modelUsage": {
         "claude-haiku-4-5-20251001": {"inputTokens": 521, "outputTokens": 12, "cacheReadInputTokens": 0},
-        "claude-fable-5": {"inputTokens": 2, "outputTokens": 22, "cacheReadInputTokens": 25774},
+        "claude-fable-5": {"inputTokens": 2, "outputTokens": 22, "cacheReadInputTokens": 25774, "cacheCreationInputTokens": 1200},
     },
 }
 
@@ -89,6 +89,7 @@ async def test_complete_parses_content_usage_and_cli_args(monkeypatch: pytest.Mo
     assert response.usage.prompt_tokens == 523
     assert response.usage.completion_tokens == 34
     assert response.usage.cached_prompt_tokens == 25774
+    assert response.usage.cache_creation_prompt_tokens == 1200
     args = calls[0]
     assert args[0] == "claude"
     assert args[1] == "-p"

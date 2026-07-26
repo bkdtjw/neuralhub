@@ -63,6 +63,7 @@ def _parse_result(raw: str, provider: str) -> LLMResponse:
             usage.prompt_tokens += int(stats.get("inputTokens", 0) or 0)
             usage.completion_tokens += int(stats.get("outputTokens", 0) or 0)
             usage.cached_prompt_tokens += int(stats.get("cacheReadInputTokens", 0) or 0)
+            usage.cache_creation_prompt_tokens += int(stats.get("cacheCreationInputTokens", 0) or 0)
     return LLMResponse(content=str(data.get("result", "")), usage=usage)
 
 
