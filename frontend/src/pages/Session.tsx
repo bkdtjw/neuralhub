@@ -157,7 +157,11 @@ export default function Session() {
             // 会话详情拉取中：渲消息骨架，避免刷新已有会话时先闪一屏空状态建议卡。
             <MessageSkeleton />
           ) : (
-            <EmptySessionState enabled={suggestionsEnabled} onPick={(prompt) => void sendInSession(prompt)} />
+            <EmptySessionState
+              configured={Boolean(currentProviderId && currentModel)}
+              enabled={suggestionsEnabled}
+              onPick={(prompt) => void sendInSession(prompt)}
+            />
           )}
           <div className="absolute bottom-10 left-0 right-0 px-6">
             <InputBar status={status} onSend={(text, options) => void sendInSession(text, options)} onAbort={abortRun} compact />

@@ -1,6 +1,7 @@
 import { type ChangeEvent, useEffect, useRef } from "react";
 import { Database, Pencil, Plus, Upload } from "lucide-react";
 
+import EmptyState from "@/components/common/EmptyState";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useKnowledgeStore } from "@/stores/knowledgeStore";
 import type { KnowledgeDocument } from "@/types/knowledge";
@@ -92,7 +93,22 @@ export default function Knowledge() {
             </div>
           </header>
           {error ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div> : null}
-          {loading ? <div className="mt-5 h-40 animate-pulse rounded-xl bg-[var(--as-surface)]" /> : <DocumentTable documents={documents} />}
+          {loading ? (
+            <div className="mt-5 h-40 animate-pulse rounded-xl bg-[var(--as-surface)]" />
+          ) : current ? (
+            <DocumentTable documents={documents} />
+          ) : (
+            <div className="flex justify-center py-10">
+              <div className="w-full max-w-[400px]">
+                <EmptyState
+                  icon={Database}
+                  title="还没有知识库"
+                  description="新建一个知识库并上传文档，会话即可引用这些资料"
+                  action={{ label: "新建知识库", onClick: () => void create() }}
+                />
+              </div>
+            </div>
+          )}
         </main>
       </div>
       <input ref={fileInputRef} type="file" multiple accept=".pdf,.docx,.md,.txt" className="hidden" onChange={(event) => void upload(event)} />
