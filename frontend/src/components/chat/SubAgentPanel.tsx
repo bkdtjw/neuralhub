@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Bot, ChevronDown, ChevronRight, Hammer, MessageSquare, Undo2, X } from "lucide-react";
+import { Bot, ChevronRight, X } from "lucide-react";
 
+import SubAgentDetail from "@/components/chat/SubAgentDetail";
 import { isRunActive, useSubAgentStore } from "@/stores/subAgentStore";
 import type { SubAgentEntry, SubAgentRun, SubAgentStatus } from "@/stores/subAgentStore";
 
@@ -18,14 +19,9 @@ const STATUS_META: Record<SubAgentStatus, { label: string; dot: string }> = {
   skipped: { label: "跳过", dot: "bg-[var(--as-text-subtle)]" },
 };
 
-const KIND_ICON: Record<string, typeof Hammer> = {
-  tool_call: Hammer,
-  tool_result: Undo2,
-  message: MessageSquare,
-};
-
 export default function SubAgentPanel({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const runsMap = useSubAgentStore((state) => state.runs);
+  const [detail, setDetail] = useState<{ runKey: string; role: string } | null>(null);
   const runs = useMemo(
     () =>
       Object.values(runsMap)
@@ -33,6 +29,8 @@ export default function SubAgentPanel({ sessionId, onClose }: { sessionId: strin
         .sort((a, b) => b.startedAt - a.startedAt),
     [runsMap, sessionId],
   );
+  const detailRun = detail ? runsMap[detail.runKey] : undefined;
+  const detailAgent = detail && detailRun ? detailRun.agents[detail.role] : undefined;
 
   return (
     <aside className="flex w-[320px] shrink-0 flex-col border-l border-[var(--as-border)] bg-[var(--as-surface-low)]">
@@ -54,17 +52,30 @@ export default function SubAgentPanel({ sessionId, onClose }: { sessionId: strin
         {runs.length === 0 ? (
           <p className="px-1 pt-2 text-[12px] leading-5 text-[var(--as-text-subtle)]">
             本会话还没有子 agent 活动。当主 agent 编排（orchestrate_agents）、派发（dispatch_agent）
-            或队列并行（spawn_agent）子 agent 时，这里会实时显示每个子 agent 的运行过程。
+            或队列并行（spawn_agent）子 agent 时，这里会实时显示每个子 agent 的运行过程，点击可查看完整内容。
           </p>
         ) : (
-          runs.map((run) => <RunCard key={run.runId} run={run} />)
+          runs.map((run) => (
+            <RunCard
+              key={run.runId}
+              run={run}
+              onOpenAgent={(role) => setDetail({ runKey: run.runId, role })}
+            />
+          ))
         )}
       </div>
+      {detailRun && detailAgent ? (
+        <SubAgentDetail
+          rawRunId={detailRun.rawRunId}
+          agent={detailAgent}
+          onClose={() => setDetail(null)}
+        />
+      ) : null}
     </aside>
   );
 }
 
-function RunCard({ run }: { run: SubAgentRun }) {
+function RunCard({ run, onOpenAgent }: { run: SubAgentRun; onOpenAgent: (role: string) => void }) {
   const active = isRunActive(run);
   const stageGroups = useMemo(() => {
     const groups = new Map<number | undefined, SubAgentEntry[]>();
@@ -101,7 +112,7 @@ function RunCard({ run }: { run: SubAgentRun }) {
               </div>
             ) : null}
             {agents.map((agent) => (
-              <AgentRow key={agent.role} agent={agent} />
+              <AgentRow key={agent.role} agent={agent} onOpen={() => onOpenAgent(agent.role)} />
             ))}
           </div>
         ))}
@@ -110,45 +121,22 @@ function RunCard({ run }: { run: SubAgentRun }) {
   );
 }
 
-function AgentRow({ agent }: { agent: SubAgentEntry }) {
-  const [expanded, setExpanded] = useState(false);
+function AgentRow({ agent, onOpen }: { agent: SubAgentEntry; onOpen: () => void }) {
   const meta = STATUS_META[agent.status];
-  const expandable = agent.activities.length > 0 || Boolean(agent.error);
-
   return (
-    <div className="rounded-md">
-      <button
-        type="button"
-        onClick={() => expandable && setExpanded((value) => !value)}
-        className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition ${expandable ? "hover:bg-[var(--as-hover)]" : "cursor-default"}`}
-      >
-        <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
-        <span className="truncate text-[12px] text-[var(--as-text)]">{agent.role}</span>
-        <span className="ml-auto shrink-0 text-[10px] text-[var(--as-text-subtle)]">{meta.label}</span>
-        {expandable ? (
-          expanded ? (
-            <ChevronDown size={12} className="shrink-0 text-[var(--as-text-subtle)]" />
-          ) : (
-            <ChevronRight size={12} className="shrink-0 text-[var(--as-text-subtle)]" />
-          )
-        ) : null}
-      </button>
-      {expanded ? (
-        <div className="mb-1 ml-3 space-y-1 border-l border-[var(--as-border)] pl-2.5">
-          {agent.activities.map((activity, index) => {
-            const Icon = KIND_ICON[activity.kind] ?? MessageSquare;
-            return (
-              <div key={index} className="flex items-start gap-1.5 text-[11px] leading-4 text-[var(--as-text-secondary)]">
-                <Icon size={11} className="mt-0.5 shrink-0 text-[var(--as-text-subtle)]" />
-                <span className="break-all">{activity.preview}</span>
-              </div>
-            );
-          })}
-          {agent.error ? (
-            <div className="text-[11px] leading-4 text-[var(--as-danger)]">{agent.error}</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition hover:bg-[var(--as-hover)]"
+      aria-label={`查看子 agent ${agent.role} 的完整内容`}
+    >
+      <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
+      <span className="truncate text-[12px] text-[var(--as-text)]">{agent.role}</span>
+      <span className="ml-auto shrink-0 text-[10px] text-[var(--as-text-subtle)]">{meta.label}</span>
+      <ChevronRight
+        size={12}
+        className="shrink-0 text-[var(--as-text-subtle)] opacity-0 transition group-hover:opacity-100"
+      />
+    </button>
   );
 }
