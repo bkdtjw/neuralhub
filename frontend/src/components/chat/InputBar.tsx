@@ -54,7 +54,8 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
   const currentProvider = providers.find((item) => item.id === currentProviderId) ?? null;
   const modelOptions = providerModels(currentProvider);
   const thinkingAvailable = supportsThinking(currentProvider, currentModel);
-  const canSend = Boolean(text.trim() && currentProvider && currentModel && !running);
+  // 运行中也可发送：消息会注入运行中的对话（边跑边聊）
+  const canSend = Boolean(text.trim() && currentProvider && currentModel);
   const thinkingIndex = thinkingLevels.findIndex((item) => item.value === thinkingLevel);
   const workspaceLabel = workspace ? workspace.split(/[/\\]/).filter(Boolean).pop() ?? workspace : "工作区";
 
@@ -90,11 +91,17 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
         <textarea
           ref={textareaRef}
           value={text}
-          disabled={running || !currentProvider || !currentModel}
+          disabled={!currentProvider || !currentModel}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          placeholder={currentProvider && currentModel ? "向 NeuralHub 发送消息" : "先在设置中配置并启用 Provider"}
+          placeholder={
+            !currentProvider || !currentModel
+              ? "先在设置中配置并启用 Provider"
+              : running
+                ? "运行中，可继续补充指令（回车追加进对话）"
+                : "向 NeuralHub 发送消息"
+          }
           className="max-h-36 min-h-[64px] w-full resize-none bg-transparent text-[13px] leading-6 text-[var(--as-text)] outline-none placeholder:text-[var(--as-text-subtle)] disabled:cursor-not-allowed"
         />
         <div className="mt-3 flex items-center gap-3">
@@ -178,14 +185,24 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {!compact ? <span className="hidden text-[11px] text-[var(--as-text-subtle)] sm:inline">{statusText(status)}</span> : null}
+            {running ? (
+              <button
+                type="button"
+                onClick={onAbort}
+                className="flex h-10 shrink-0 items-center gap-1.5 rounded-[7px] border border-[var(--as-border-strong)] bg-[var(--as-bg)] px-3 text-sm text-[var(--as-text-secondary)] transition hover:bg-[var(--as-hover)] hover:text-[var(--as-text)]"
+              >
+                <Square size={13} fill="currentColor" />
+                <span>停止</span>
+              </button>
+            ) : null}
             <button
               type="button"
-              disabled={!running && !canSend}
-              onClick={running ? onAbort : handleSend}
+              disabled={!canSend}
+              onClick={handleSend}
               className="as-primary-btn h-10 gap-1.5 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {running ? <Square size={14} fill="currentColor" /> : <SendHorizontal size={15} />}
-              <span>{running ? "停止" : "发送"}</span>
+              <SendHorizontal size={15} />
+              <span>{running ? "追加" : "发送"}</span>
             </button>
           </div>
         </div>

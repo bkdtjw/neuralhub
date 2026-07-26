@@ -86,16 +86,18 @@ def test_orchestrator_rejects_invalid_plan() -> None:
 
 @pytest.mark.asyncio
 async def test_orchestrator_timeout_marks_result_as_error() -> None:
+    # 时序预算给足：快任务的框架开销在高负载 2 核机上实测可达 20ms+，
+    # 10ms 超时预算会让快任务也超时（历史上多次批跑抖动的根源）。
     adapter = ScenarioAdapter(
         lambda message: f"完成:{message}",
-        delay_fn=lambda message: 0.05 if "慢任务" in message else 0.0,
+        delay_fn=lambda message: 1.0 if "慢任务" in message else 0.0,
     )
     plan = SimplePlan(tasks=[build_task("slow", "慢任务"), build_task("fast", "快任务")])
 
     result = await Orchestrator(
         adapter=adapter,
         parent_registry=ToolRegistry(),
-        config=build_orchestrator_config(timeout=0.01),
+        config=build_orchestrator_config(timeout=0.3),
     ).execute(plan)
 
     assert result.is_error is True

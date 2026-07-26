@@ -12,7 +12,14 @@ class InlineAgentTemplate:
     max_iterations: int
 
 
+DEFAULT_INLINE_TEMPLATE = "generalist"
+
 INLINE_AGENT_TEMPLATES: dict[str, InlineAgentTemplate] = {
+    "generalist": InlineAgentTemplate(
+        prompt="你是通用子任务执行员（只读）。围绕指定角色完成分配的子任务，检索、阅读、分析并输出结构化结论；不修改文件。",
+        tools=("Read", "Glob", "Grep", "WebSearch", "browse_web", "read_history"),
+        max_iterations=15,
+    ),
     "research-specialist": InlineAgentTemplate(
         prompt="你是只读研究员。只做资料检索、事实整理和来源标注，不改代码、不写文件。",
         tools=("WebSearch", "browse_web", "read_history"),
@@ -85,17 +92,18 @@ def resolve_inline_tools(
     template: str,
     policy: SubAgentPolicy,
 ) -> list[str]:
+    """显式请求的工具即为准（不再与模板工具集求交）；未请求时用模板默认。
+
+    policy.allowed_inline_tools 配置了才收紧；写类工具的剥离由
+    filter_tools_for_permission 按 permission 统一处理。
+    """
     tpl = INLINE_AGENT_TEMPLATES.get(template)
-    if tpl is None:
-        return []
-    template_tools = list(tpl.tools)
-    source = requested or template_tools
-    allowed = set(template_tools)
-    if policy.allowed_inline_tools:
-        allowed &= {item.strip() for item in policy.allowed_inline_tools if item.strip()}
-    if not allowed:
-        return []
-    return [name for name in source if name.strip() in allowed]
+    template_tools = list(tpl.tools) if tpl is not None else []
+    source = [name for name in (requested or template_tools) if name.strip()]
+    policy_allowed = {item.strip() for item in policy.allowed_inline_tools if item.strip()}
+    if policy_allowed:
+        return [name for name in source if name.strip() in policy_allowed]
+    return source
 
 
 def resolve_max_iterations(
@@ -115,6 +123,7 @@ def known_inline_templates() -> list[str]:
 
 
 __all__ = [
+    "DEFAULT_INLINE_TEMPLATE",
     "INLINE_AGENT_TEMPLATES",
     "build_inline_system_prompt",
     "known_inline_templates",

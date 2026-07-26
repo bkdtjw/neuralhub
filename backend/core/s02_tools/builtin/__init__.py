@@ -85,7 +85,7 @@ def register_builtin_tools(
             spawner = SubAgentSpawner(
                 adapter, registry, loader, default_model, progress_handler=event_handler
             )
-            lifecycle = SubAgentLifecycle(timeout=120.0)
+            lifecycle = SubAgentLifecycle(timeout=300.0)
             tools.append(create_dispatch_agent_tool(spawner, lifecycle))
             try:
                 from backend.core.s04_sub_agents import OrchestratorConfig

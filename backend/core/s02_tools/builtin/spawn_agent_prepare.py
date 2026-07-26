@@ -5,6 +5,7 @@ from backend.common.types import generate_id
 from .spawn_agent_governance import filter_tools_for_permission, normalize_permission
 from .spawn_agent_support import PreparedTask, SpawnAgentDeps, SpawnAgentTask
 from .spawn_agent_templates import (
+    DEFAULT_INLINE_TEMPLATE,
     build_inline_system_prompt,
     resolve_inline_tools,
     resolve_max_iterations,
@@ -21,9 +22,11 @@ def prepare_tasks(tasks: list[SpawnAgentTask], deps: SpawnAgentDeps) -> list[Pre
 def _prepare_one(index: int, task: SpawnAgentTask, deps: SpawnAgentDeps) -> PreparedTask:
     spec_id = task.spec_id.strip()
     template = task.template.strip()
+    if not spec_id:
+        template = template or DEFAULT_INLINE_TEMPLATE
     spec = deps.spec_registry.get(spec_id) if spec_id else None
     if spec_id and (spec is None or not spec.enabled):
-        raise ValueError(f"未找到可用场景：{spec_id}")
+        raise ValueError(f"未找到可用场景：{spec_id}；如需临时角色请改用 role 字段（inline 模式）")
     timeout_seconds = float(task.timeout_seconds or (spec.timeout_seconds if spec is not None else 120))
     permission = normalize_permission(task.permission)
     source_tools = _source_tools(task, spec_id, template, deps)

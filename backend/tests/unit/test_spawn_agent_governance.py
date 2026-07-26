@@ -85,14 +85,65 @@ def _execute(queue: FakeQueue, policy: SubAgentPolicy):
 
 @pytest.mark.asyncio
 async def test_allowed_specs_enforced() -> None:
+    # 配置了 spec 白名单时仍然收紧：名单外的 spec_id 被拒。
     queue = FakeQueue()
     execute = _execute(queue, SubAgentPolicy(allowed_specs=["code-reviewer"]))
 
-    result = await execute({"tasks": [{"role": "security-reviewer", "input": "audit"}]})
+    result = await execute({"tasks": [{"spec_id": "security-reviewer", "input": "audit"}]})
 
     assert result.is_error is True
     assert "未在白名单" in result.output
     assert queue.submitted == []
+
+
+@pytest.mark.asyncio
+async def test_free_inline_role_allowed_by_default() -> None:
+    # 零配置即可自由起角色：缺省模板 generalist，readonly 下不带写类工具。
+    queue = FakeQueue([(TaskStatus.SUCCEEDED, "done")])
+    execute = _execute(queue, SubAgentPolicy())
+
+    result = await execute({"tasks": [{"role": "报告审阅员", "input": "审阅本期报告"}]})
+
+    assert result.is_error is False
+    data = queue.submitted[0]["input_data"]
+    assert data["template"] == "generalist"
+    assert data["permission"] == "readonly"
+    assert data["tools"] and all(tool not in {"Write", "Bash", "Edit"} for tool in data["tools"])
+
+
+@pytest.mark.asyncio
+async def test_empty_allowed_specs_allows_registered_spec() -> None:
+    # 白名单为空 = 不限制：任意已注册 spec 直接放行。
+    queue = FakeQueue([(TaskStatus.SUCCEEDED, "done")])
+    execute = _execute(queue, SubAgentPolicy())
+
+    result = await execute({"tasks": [{"spec_id": "code-reviewer", "input": "review"}]})
+
+    assert result.is_error is False
+    assert queue.submitted[0]["input_data"]["spec_id"] == "code-reviewer"
+
+
+@pytest.mark.asyncio
+async def test_explicit_inline_tools_override_template_tools() -> None:
+    # 显式请求的工具即为准，不再与模板工具集求交。
+    queue = FakeQueue([(TaskStatus.SUCCEEDED, "done")])
+    execute = _execute(queue, SubAgentPolicy())
+
+    result = await execute(
+        {
+            "tasks": [
+                {
+                    "role": "研究员",
+                    "template": "code-reader",
+                    "tools": ["WebSearch"],
+                    "input": "调研",
+                }
+            ]
+        }
+    )
+
+    assert result.is_error is False
+    assert queue.submitted[0]["input_data"]["tools"] == ["WebSearch"]
 
 
 @pytest.mark.asyncio

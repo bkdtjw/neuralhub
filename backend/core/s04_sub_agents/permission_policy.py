@@ -8,8 +8,18 @@ from .readonly_guard import is_readonly_blocked
 from .runtime_models import IsolatedRegistryConfig
 
 RECURSIVE_TOOL_NAMES = {"dispatch_agent", "orchestrate_agents"}
-DEFAULT_READONLY_TOOLS = {"Read", "Bash"}
-DEFAULT_READWRITE_TOOLS = {"Read", "Write", "Bash"}
+WRITE_TOOL_NAMES = {"Write", "str_replace", "file_edit"}
+DEFAULT_READONLY_TOOLS = {"Read", "Glob", "Grep", "read_history", "Bash"}
+DEFAULT_READWRITE_TOOLS = {
+    "Read",
+    "Glob",
+    "Grep",
+    "read_history",
+    "Write",
+    "str_replace",
+    "file_edit",
+    "Bash",
+}
 
 
 class PermissionPolicyError(AgentError):
@@ -43,7 +53,7 @@ def build_isolated_registry(
         if registered is None:
             continue
         _, executor = registered
-        if config.permission_level == "readonly" and definition.name == "Write":
+        if config.permission_level == "readonly" and definition.name in WRITE_TOOL_NAMES:
             continue
         if config.permission_level == "readonly" and definition.name == "Bash":
             original_executor = executor

@@ -54,6 +54,9 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
             # 的 task.cancel() 覆盖，语义不丢）。
             loop._aborted = False
             loop._ensure_system_message()
+            # 上一轮 run 收尾竞态残留的排队消息比本条消息更早，先补入保持时序
+            for steered_text in loop._pending_user_messages.drain():
+                await loop._append_message(Message(role="user", content=steered_text))
             await loop._append_message(Message(role="user", content=user_message))
             logger.info(
                 "agent_run_start",
@@ -64,6 +67,12 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
             for _ in range(loop._config.max_iterations):
                 iteration_count += 1
                 loop._set_status("thinking")
+                # 边跑边聊：把运行期间排队的用户消息在迭代边界注入
+                #（此处在压缩快照之前，注入的消息会被压缩流程正常纳入）。
+                steered_messages = loop._pending_user_messages.drain()
+                for steered_text in steered_messages:
+                    await loop._append_message(Message(role="user", content=steered_text))
+                    logger.info("agent_steer_injected", message_length=len(steered_text))
                 tool_definitions = loop._executor.list_definitions()
                 # 差量写回：压缩基于 await 前快照整表覆盖，await 期间并发 run 追加到尾部的
                 # 消息会被丢弃。apply_layered_compaction 在每处 await 前取 snapshot_len，写回时
@@ -118,6 +127,11 @@ async def run_agent_loop(loop: AgentLoop, user_message: str) -> Message:
                 await loop._append_message(assistant)
                 loop._emit("message", assistant)
                 if not response.tool_calls:
+                    if len(loop._pending_user_messages):
+                        # 模型正要收尾但用户在生成期间补充了消息：
+                        # 不结束本轮 run，下一轮迭代注入排队消息继续对话。
+                        logger.info("agent_steer_continues_run", iteration=iteration_count)
+                        continue
                     loop._set_status("done")
                     run_span.set_attribute("iterations", iteration_count)
                     duration_seconds = monotonic() - run_started
