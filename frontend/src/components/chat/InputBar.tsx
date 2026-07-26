@@ -52,6 +52,7 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
 
   const running = runningStatuses.includes(status);
   const currentProvider = providers.find((item) => item.id === currentProviderId) ?? null;
+  const inputDisabled = !currentProvider || !currentModel;
   const modelOptions = providerModels(currentProvider);
   const thinkingAvailable = supportsThinking(currentProvider, currentModel);
   // 运行中也可发送：消息会注入运行中的对话（边跑边聊）
@@ -72,6 +73,11 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
     resize();
   }, [text]);
 
+  // 非禁用态挂载即聚焦；禁用恢复可用（配好 Provider/模型）时也自动聚焦
+  useEffect(() => {
+    if (!inputDisabled) textareaRef.current?.focus();
+  }, [inputDisabled]);
+
   const handleSend = () => {
     const value = text.trim();
     if (!canSend) return;
@@ -87,16 +93,16 @@ export default function InputBar({ status, onSend, onAbort, compact = false }: I
 
   return (
     <div className={`shrink-0 ${compact ? "" : "pb-2"} pt-2`}>
-      <div className="mx-auto w-full max-w-[1120px] rounded-xl border border-[var(--as-border-strong)] bg-[var(--as-surface)] px-4 py-4 shadow-[var(--as-shadow)] focus-within:border-[var(--as-accent)]">
+      <div className="mx-auto w-full max-w-[760px] rounded-xl border border-[var(--as-border-strong)] bg-[var(--as-surface)] px-4 py-4 shadow-[var(--as-shadow)] focus-within:border-[var(--as-accent)]">
         <textarea
           ref={textareaRef}
           value={text}
-          disabled={!currentProvider || !currentModel}
+          disabled={inputDisabled}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
           placeholder={
-            !currentProvider || !currentModel
+            inputDisabled
               ? "先在设置中配置并启用 Provider"
               : running
                 ? "运行中，可继续补充指令（回车追加进对话）"

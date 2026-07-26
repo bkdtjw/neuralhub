@@ -115,5 +115,11 @@ function DocumentTable({ documents }: { documents: KnowledgeDocument[] }) {
 
 const statusLabel = (status: KnowledgeDocument["status"]): string => ({ processing: "处理中", ready: "已入库", partial: "部分成功", failed: "失败", empty: "空内容" })[status];
 const statusClass = (status: KnowledgeDocument["status"]): string =>
-  status === "ready" ? "bg-emerald-500/15 text-emerald-300" : status === "processing" ? "bg-blue-500/15 text-blue-300" : "bg-yellow-500/15 text-yellow-200";
+  ({
+    ready: "bg-emerald-500/15 text-emerald-300",
+    processing: "bg-blue-500/15 text-blue-300",
+    partial: "bg-yellow-500/15 text-yellow-200",
+    failed: "bg-[color:color-mix(in_srgb,var(--as-danger)_15%,transparent)] text-[var(--as-danger)]",
+    empty: "bg-[var(--as-surface-low)] text-[var(--as-text-muted)]",
+  })[status];
 const formatBytes = (bytes: number): string => (bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);

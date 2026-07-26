@@ -68,7 +68,7 @@ export default function TokenLineChart({ days }: TokenLineChartProps) {
       </svg>
       {hovered ? (
         <div
-          className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 rounded-lg border border-[var(--as-border-strong)] bg-[var(--as-bg)]/95 px-3 py-2 text-xs shadow-xl"
+          className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 rounded-lg border border-[var(--as-border-strong)] bg-[var(--as-surface-raised)] px-3 py-2 text-xs shadow-xl"
           style={{ left: `${tooltipLeftPct}%` }}
         >
           <div className="font-medium text-[var(--as-text)]">{hovered.date}</div>
