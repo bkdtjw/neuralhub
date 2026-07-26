@@ -12,6 +12,9 @@ from backend.adapters.openai_adapter import OpenAICompatAdapter
 from backend.common import LLMError
 from backend.common.types import LLMRequest, Message, ProviderConfig, ProviderType
 
+# 本文件测的是 HTTP 适配器契约（mock httpx）；claude_code 是子进程型适配器，不适用
+_HTTP_PROVIDER_TYPES = [ProviderType.OPENAI_COMPAT, ProviderType.ANTHROPIC, ProviderType.OLLAMA]
+
 
 def _provider(provider_type: ProviderType) -> ProviderConfig:
     return ProviderConfig(
@@ -114,7 +117,7 @@ def test_ollama_adapter_parses_reasoning_content() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("provider_type", _HTTP_PROVIDER_TYPES)
 @pytest.mark.parametrize("status_code", [500, 502, 503, 504])
 async def test_complete_retries_on_retryable_status_codes(provider_type: ProviderType, status_code: int, caplog: pytest.LogCaptureFixture) -> None:
     adapter = _adapter(provider_type)
@@ -129,7 +132,7 @@ async def test_complete_retries_on_retryable_status_codes(provider_type: Provide
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("provider_type", _HTTP_PROVIDER_TYPES)
 @pytest.mark.parametrize(
     "error_type",
     [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError],
@@ -146,7 +149,7 @@ async def test_complete_retries_on_retryable_request_errors(provider_type: Provi
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("provider_type", _HTTP_PROVIDER_TYPES)
 @pytest.mark.parametrize("status_code,error_code", [(400, "API_ERROR"), (401, "AUTH_ERROR"), (403, "API_ERROR"), (404, "API_ERROR")])
 async def test_complete_does_not_retry_on_non_retryable_status_codes(provider_type: ProviderType, status_code: int, error_code: str) -> None:
     adapter = _adapter(provider_type)
@@ -176,7 +179,7 @@ async def test_anthropic_complete_raises_on_success_false_body() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("provider_type", _HTTP_PROVIDER_TYPES)
 async def test_complete_exhausts_retries_on_server_error(provider_type: ProviderType) -> None:
     adapter = _adapter(provider_type)
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0):
@@ -189,7 +192,7 @@ async def test_complete_exhausts_retries_on_server_error(provider_type: Provider
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider_type", list(ProviderType))
+@pytest.mark.parametrize("provider_type", _HTTP_PROVIDER_TYPES)
 async def test_complete_exhausts_retries_on_network_error(provider_type: ProviderType) -> None:
     adapter = _adapter(provider_type)
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, patch("backend.adapters.base.asyncio.sleep", new_callable=AsyncMock) as mock_sleep, patch("backend.adapters.base.random.uniform", return_value=0.0):

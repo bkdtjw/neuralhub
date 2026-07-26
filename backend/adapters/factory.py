@@ -5,6 +5,7 @@ from backend.common.types import ProviderConfig, ProviderType
 
 from .anthropic_adapter import AnthropicAdapter
 from .base import LLMAdapter
+from .claude_code_adapter import ClaudeCodeAdapter
 from .ollama_adapter import OllamaAdapter
 from .openai_adapter import OpenAICompatAdapter
 
@@ -19,6 +20,8 @@ class AdapterFactory:
                 return OpenAICompatAdapter(config)
             case ProviderType.OLLAMA:
                 return OllamaAdapter(config)
+            case ProviderType.CLAUDE_CODE:
+                return ClaudeCodeAdapter(config)
             case _:
                 raise LLMError(
                     "UNSUPPORTED_PROVIDER",

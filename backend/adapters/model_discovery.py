@@ -7,6 +7,13 @@ from backend.config.http_client import load_http_client_config
 
 _TIMEOUT_SECONDS = 15.0
 _OLLAMA_DEFAULT_BASE = "http://localhost:11434"
+# claude CLI 无模型列举接口，返回已验证可用的别名对应全名（订阅口径，2026-07 实测）
+_CLAUDE_CODE_MODELS = [
+    "claude-fable-5",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-haiku-4-5-20251001",
+]
 
 
 def _candidate_urls(provider_type: str, base_url: str) -> list[str]:
@@ -56,6 +63,8 @@ def _parse_models(data: object) -> list[str]:
 
 async def discover_models(provider_type: str, base_url: str, api_key: str) -> list[str]:
     """探测上游可调用的模型列表（openai:/models、anthropic:/v1/models、ollama:/api/tags）。"""
+    if provider_type == "claude_code":
+        return list(_CLAUDE_CODE_MODELS)
     if provider_type != "ollama" and not base_url.strip():
         raise LLMError("MODEL_DISCOVERY_ERROR", "base_url is required", provider_type)
     errors: list[str] = []

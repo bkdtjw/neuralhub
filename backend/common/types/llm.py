@@ -13,6 +13,7 @@ class ProviderType(str, Enum):  # noqa: UP042
     OPENAI_COMPAT = "openai_compat"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
+    CLAUDE_CODE = "claude_code"
 
 
 class ProviderConfig(BaseModel):
