@@ -159,22 +159,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })();
   },
   deleteSession: async (id: string) => {
-    await api.deleteSession(id);
-    removeSessionMeta(id);
+    // 乐观更新：先记快照（含在列表中的位置）并立即移除，失败再插回原位置
+    const snapshotIndex = get().sessions.findIndex((item) => item.id === id);
+    if (snapshotIndex < 0) return;
+    const snapshot = get().sessions[snapshotIndex];
     const wasCurrent = get().currentSessionId === id;
-    set((state) => {
-      const sessions = state.sessions.filter((item) => item.id !== id);
-      return {
-        sessions,
-        currentSessionId: wasCurrent ? null : state.currentSessionId,
-        messages: wasCurrent ? [] : state.messages,
-        streamingText: wasCurrent ? "" : state.streamingText,
-        streamingReasoning: wasCurrent ? "" : state.streamingReasoning,
-        pendingApprovals: wasCurrent ? [] : state.pendingApprovals,
-        status: wasCurrent ? "idle" : state.status,
-        lastError: wasCurrent ? "" : state.lastError,
-      };
-    });
+    set((state) => ({
+      sessions: state.sessions.filter((item) => item.id !== id),
+      currentSessionId: wasCurrent ? null : state.currentSessionId,
+      messages: wasCurrent ? [] : state.messages,
+      streamingText: wasCurrent ? "" : state.streamingText,
+      streamingReasoning: wasCurrent ? "" : state.streamingReasoning,
+      pendingApprovals: wasCurrent ? [] : state.pendingApprovals,
+      status: wasCurrent ? "idle" : state.status,
+      lastError: wasCurrent ? "" : state.lastError,
+    }));
+    try {
+      await api.deleteSession(id);
+      removeSessionMeta(id);
+    } catch (error) {
+      console.error("deleteSession failed", error);
+      set((state) => {
+        const sessions = state.sessions.filter((item) => item.id !== id);
+        sessions.splice(Math.min(snapshotIndex, sessions.length), 0, snapshot);
+        return { sessions, lastError: "删除失败，已恢复该会话" };
+      });
+    }
   },
   sendMessage: async (text: string, options?: ChatRunOptions) => {
     const content = text.trim();

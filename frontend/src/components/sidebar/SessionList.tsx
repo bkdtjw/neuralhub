@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 
 import type { Session } from "@/types";
@@ -58,14 +58,16 @@ function TimeGroup({
   collapsed,
   onToggle,
   onSelect,
-  onDelete,
+  confirmingId,
+  onDeleteClick,
 }: {
   group: SessionGroup;
   currentSessionId: string | null;
   collapsed: boolean;
   onToggle: () => void;
   onSelect: (id: string) => void;
-  onDelete: (id: string) => void;
+  confirmingId: string | null;
+  onDeleteClick: (id: string) => void;
 }) {
   const hasActive = group.sessions.some((session) => session.id === currentSessionId);
 
@@ -117,14 +119,18 @@ function TimeGroup({
                 </button>
                 <button
                   type="button"
-                  aria-label="删除会话"
+                  aria-label={confirmingId === session.id ? "确认删除会话" : "删除会话"}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onDelete(session.id);
+                    onDeleteClick(session.id);
                   }}
-                  className="mr-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--as-text-subtle)] opacity-0 transition-colors hover:bg-white/10 hover:text-rose-300 group-hover:opacity-100"
+                  className={
+                    confirmingId === session.id
+                      ? "mr-1.5 flex h-7 shrink-0 items-center rounded-lg bg-[color-mix(in_srgb,var(--as-danger)_16%,transparent)] px-2 text-[11px] font-medium text-[var(--as-danger)] ring-1 ring-[color-mix(in_srgb,var(--as-danger)_45%,transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--as-danger)_26%,transparent)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--as-danger)]"
+                      : "mr-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--as-text-subtle)] opacity-0 transition-colors hover:bg-white/10 hover:text-[var(--as-danger)] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--as-accent)] group-hover:opacity-100 group-focus-within:opacity-100"
+                  }
                 >
-                  <Trash2 size={13} />
+                  {confirmingId === session.id ? "确认删除?" : <Trash2 size={13} />}
                 </button>
               </div>
             );
@@ -137,12 +143,28 @@ function TimeGroup({
 
 export default function SessionList({ sessions, currentSessionId, onSelect, onDelete }: SessionListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  // 两击确认删除：同一时刻仅一个条目处于确认态，2 秒未二次点击自动复位
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!confirmingId) return;
+    const timer = window.setTimeout(() => setConfirmingId(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [confirmingId]);
 
   if (!sessions.length) {
     return <div className="px-3 py-6 text-xs text-[var(--as-text-subtle)]">暂无会话</div>;
   }
 
   const groups = groupSessions(sessions);
+  const handleDeleteClick = (id: string) => {
+    if (confirmingId === id) {
+      setConfirmingId(null);
+      onDelete(id);
+      return;
+    }
+    setConfirmingId(id);
+  };
 
   return (
     <div className="space-y-0.5">
@@ -154,7 +176,8 @@ export default function SessionList({ sessions, currentSessionId, onSelect, onDe
           collapsed={collapsedGroups[group.key] ?? false}
           onToggle={() => setCollapsedGroups((state) => ({ ...state, [group.key]: !(state[group.key] ?? false) }))}
           onSelect={onSelect}
-          onDelete={onDelete}
+          confirmingId={confirmingId}
+          onDeleteClick={handleDeleteClick}
         />
       ))}
     </div>
