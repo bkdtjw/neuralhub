@@ -52,8 +52,10 @@ services:
       - ./proxy-config.yaml:/app/proxy-config.yaml:ro
       # GeoIP database to avoid mihomo downloading it at startup
       - /etc/mihomo/geoip.metadb:/app/data/geoip.metadb:ro
-      # Claude Code CLI（订阅登录态）供 claude_code provider 子进程调用；
-      # app 进程跑在 appuser(1000)，home 用 appuser 可写目录，凭据目录经 ACL 授权挂到其下
+      # Claude Code CLI（订阅登录态）供 claude_code provider 子进程调用。
+      # app 跑在 appuser(1000)：home 用其可写目录；宿主 ~/.claude 挂进来但只授 x（可穿越、
+      # 不可列目录），仅 .credentials.json 授 rw —— 1.5G 项目历史转录不对容器暴露。
+      # token 刷新会重置该 ACL，由宿主 cron /usr/local/sbin/claude-creds-acl.sh 每分钟重放。
       - /usr/bin/claude:/usr/bin/claude:ro
       - /usr/lib/node_modules/@anthropic-ai/claude-code:/usr/lib/node_modules/@anthropic-ai/claude-code:ro
       - ./data/claude_home:/claude-home

@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import contextlib
 import os
+import signal
 import tempfile
 from collections.abc import AsyncIterator
-from pathlib import Path
-from typing import Any
 
 from backend.common import LLMError
-from backend.common.types import LLMRequest, LLMResponse, LLMUsage, Message, ProviderConfig, StreamChunk
+from backend.common.types import LLMRequest, LLMResponse, ProviderConfig, StreamChunk
 
 from .base import LLMAdapter
+from .claude_code_support import (
+    build_args,
+    build_env,
+    ensure_home_config,
+    parse_result,
+    render_prompt,
+)
 from .logging_support import (
     adapter_logger,
     incr_llm_error,
@@ -20,64 +26,13 @@ from .logging_support import (
     log_llm_request_error,
     log_llm_request_start,
 )
-from .message_zones import request_system_prompt, request_zone_messages
 
 logger = adapter_logger("claude_code_adapter")
 _TIMEOUT_SECONDS = 300.0
-# 全量禁用内建工具：本 provider 只当纯文本 LLM 用；claude CLI 以 root 跑在服务器上，
-# 不禁则经 /v1 入口（尚无鉴权）会变成远程文件读取器。
-_DISALLOWED_TOOLS = (
-    "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task,Agent,"
-    "TodoWrite,Skill,SlashCommand,KillShell,BashOutput,EnterPlanMode,ExitPlanMode"
-)
-# 进程环境可能带指向其它厂商 compat 端点的 ANTHROPIC_* 覆写（app 容器就配了 zhipu），
-# CLI 会优先吃它们导致模型不存在/鉴权错乱；剥掉，强制走订阅登录态。
-_STRIPPED_ENV_KEYS = frozenset(
-    {
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_SMALL_FAST_MODEL",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-    }
-)
-
-
-def _render_message(message: Message) -> str:
-    parts: list[str] = []
-    text = (message.content or "").strip()
-    if text:
-        parts.append(f"[{message.role}] {text}")
-    for call in message.tool_calls or []:
-        parts.append(f"[{message.role} 调用工具 {call.name}] {json.dumps(call.arguments, ensure_ascii=False)}")
-    for result in message.tool_results or []:
-        parts.append(f"[工具结果] {result.output}")
-    return "\n".join(parts)
-
-
-def _render_prompt(request: LLMRequest) -> str:
-    rendered = [_render_message(m) for m in request_zone_messages(request, include_system=False)]
-    body = "\n\n".join(part for part in rendered if part)
-    return f"{body}\n\n请以 assistant 身份直接回复最后一条 user 消息。"
-
-
-def _parse_result(raw: str, provider: str) -> LLMResponse:
-    try:
-        data: dict[str, Any] = json.loads(raw)
-    except ValueError as exc:
-        raise LLMError("CLAUDE_CODE_PARSE_ERROR", f"invalid JSON from CLI: {raw[:200]}", provider) from exc
-    if data.get("is_error"):
-        raise LLMError("CLAUDE_CODE_ERROR", str(data.get("result", ""))[:500], provider)
-    usage = LLMUsage()
-    for stats in (data.get("modelUsage") or {}).values():
-        if isinstance(stats, dict):
-            usage.prompt_tokens += int(stats.get("inputTokens", 0) or 0)
-            usage.completion_tokens += int(stats.get("outputTokens", 0) or 0)
-            usage.cached_prompt_tokens += int(stats.get("cacheReadInputTokens", 0) or 0)
-            usage.cache_creation_prompt_tokens += int(stats.get("cacheCreationInputTokens", 0) or 0)
-    return LLMResponse(content=str(data.get("result", "")), usage=usage)
+_TERMINATE_GRACE_SECONDS = 3.0
+# 每个 CLI 子进程是完整 node 进程（数百 MB），生产机仅 2 核 3.5G 且有过并发压死记录，
+# 故默认只允许 2 个并发；排队等待不计入 _TIMEOUT_SECONDS，避免排队被误报超时。
+_DEFAULT_MAX_CONCURRENCY = 2
 
 
 class ClaudeCodeAdapter(LLMAdapter):
@@ -91,64 +46,63 @@ class ClaudeCodeAdapter(LLMAdapter):
         self._home = str(extra.get("home") or "")
         # 在空目录运行，避免继承宿主项目的 CLAUDE.md / MCP 配置
         self._cwd = str(extra.get("cwd") or tempfile.gettempdir())
+        limit = int(extra.get("max_concurrency") or _DEFAULT_MAX_CONCURRENCY)
+        self._semaphore = asyncio.Semaphore(max(1, limit))
 
-    def _env(self) -> dict[str, str]:
-        env = dict(os.environ)
-        if self._home:
-            env["HOME"] = self._home
-        return {key: value for key, value in env.items() if key not in _STRIPPED_ENV_KEYS}
-
-    def _ensure_home_config(self) -> None:
-        # CLI 要求 $HOME/.claude.json 存在（容器内首跑没有且因 backups 存在而拒绝自建），补种最小配置
-        if not self._home:
-            return
-        path = Path(self._home) / ".claude.json"
-        try:
-            if not path.exists():
-                path.write_text('{"hasCompletedOnboarding": true}', encoding="utf-8")
-        except OSError:
-            logger.warning("claude_code_home_seed_failed", path=str(path))
-
-    def _args(self, request: LLMRequest) -> list[str]:
-        args = [
-            self._command,
-            "-p",
-            "--output-format",
-            "json",
-            "--model",
-            request.model or self._default_model,
-            "--disallowedTools",
-            _DISALLOWED_TOOLS,
-        ]
-        system_prompt = request_system_prompt(request)
-        if system_prompt:
-            args.extend(["--system-prompt", system_prompt])
-        return args
-
-    async def _run(self, request: LLMRequest) -> LLMResponse:
-        self._ensure_home_config()
-        proc = await asyncio.create_subprocess_exec(
-            *self._args(request),
+    async def _spawn(self, request: LLMRequest) -> asyncio.subprocess.Process:
+        ensure_home_config(self._home, logger)
+        return await asyncio.create_subprocess_exec(
+            *build_args(self._command, request, self._default_model),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=self._cwd,
-            env=self._env(),
+            env=build_env(self._home),
+            # 独立进程组：CLI 会派生 node 子进程，只杀主进程会留下孤儿继续跑满额度
+            start_new_session=True,
         )
+
+    async def _kill_process_group(self, proc: asyncio.subprocess.Process) -> None:
+        if proc.returncode is not None:
+            return
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.killpg(os.getpgid(proc.pid), sig)
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.wait(), timeout=_TERMINATE_GRACE_SECONDS)
+                return
+        with contextlib.suppress(Exception):
+            await proc.wait()
+
+    async def _communicate(self, proc: asyncio.subprocess.Process, request: LLMRequest) -> LLMResponse:
+        payload = render_prompt(request).encode("utf-8")
         try:
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=_render_prompt(request).encode("utf-8")),
-                timeout=_TIMEOUT_SECONDS,
+                proc.communicate(input=payload), timeout=_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError as exc:
-            proc.kill()
+            await self._kill_process_group(proc)
             raise LLMError(
-                "CLAUDE_CODE_TIMEOUT", f"claude CLI timed out after {int(_TIMEOUT_SECONDS)}s", self._provider
+                "CLAUDE_CODE_TIMEOUT",
+                f"claude CLI timed out after {int(_TIMEOUT_SECONDS)}s",
+                self._provider,
             ) from exc
+        except asyncio.CancelledError:
+            # 客户端断连/上游取消：必须杀掉整组，否则 CLI 会把这轮跑完、白烧订阅额度
+            await self._kill_process_group(proc)
+            raise
         if proc.returncode != 0:
             detail = (stderr or stdout or b"").decode("utf-8", "replace")[-500:]
             raise LLMError("CLAUDE_CODE_ERROR", f"exit {proc.returncode}: {detail}", self._provider)
-        return _parse_result(stdout.decode("utf-8", "replace"), self._provider)
+        return parse_result(stdout.decode("utf-8", "replace"), self._provider)
+
+    async def _run(self, request: LLMRequest) -> LLMResponse:
+        async with self._semaphore:
+            proc = await self._spawn(request)
+            try:
+                return await self._communicate(proc, request)
+            finally:
+                await self._kill_process_group(proc)
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         started_at = log_llm_request_start(
@@ -156,6 +110,8 @@ class ClaudeCodeAdapter(LLMAdapter):
         )
         try:
             response = await self._run(request)
+        except asyncio.CancelledError:
+            raise
         except LLMError as exc:
             log_llm_request_error(
                 logger, model=request.model, provider=self._provider,
@@ -188,11 +144,11 @@ class ClaudeCodeAdapter(LLMAdapter):
 
     async def test_connection(self) -> bool:
         try:
-            self._ensure_home_config()
+            ensure_home_config(self._home, logger)
             proc = await asyncio.create_subprocess_exec(
                 self._command, "--version",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                cwd=self._cwd, env=self._env(),
+                cwd=self._cwd, env=build_env(self._home),
             )
             await asyncio.wait_for(proc.communicate(), timeout=30.0)
             return proc.returncode == 0

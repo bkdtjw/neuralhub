@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import asyncio, json
-from collections.abc import AsyncIterator
+import json
 from time import time
 from typing import Any
 
@@ -9,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from backend.api.routes.completion_runtime import RuntimeRegistryKey, get_runtime_registry
+from backend.api.routes.completion_stream import event_stream
 from backend.api.routes.mcp import mcp_server_manager
 from backend.api.routes.providers import provider_manager
 from backend.common import AgentError, LLMError
@@ -154,38 +154,9 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
         if not request.stream:
             return _internal_message_to_openai(await loop.run(user_message), request.model)
 
-        async def event_generator() -> AsyncIterator[str]:
-            queue: asyncio.Queue[str] = asyncio.Queue()
-
-            def emit(delta: dict[str, Any], finish_reason: str | None = None) -> None:
-                payload = {"id": "chatcmpl-stream", "object": "chat.completion.chunk", "created": int(time()), "model": request.model, "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]}
-                queue.put_nowait(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n")
-
-            def on_event(event: Any) -> None:
-                if event.type == "message" and isinstance(event.data, Message) and event.data.content:
-                    emit({"content": event.data.content})
-                if event.type == "tool_call" and isinstance(event.data, ToolCall):
-                    emit({"tool_calls": [{"index": 0, "id": event.data.id, "type": "function", "function": {"name": event.data.name, "arguments": json.dumps(event.data.arguments, ensure_ascii=False)}}]})
-                if event.type == "tool_result" and isinstance(event.data, ToolResult):
-                    emit({"content": event.data.output})
-
-            loop.on(on_event)
-            task = asyncio.create_task(loop.run(user_message))
-            try:
-                while True:
-                    if task.done() and queue.empty():
-                        break
-                    try:
-                        yield await asyncio.wait_for(queue.get(), timeout=0.1)
-                    except asyncio.TimeoutError:
-                        continue
-                await task
-                yield "data: [DONE]\n\n"
-            except Exception as exc:  # noqa: BLE001
-                yield f"data: {json.dumps({'error': {'message': str(exc)}}, ensure_ascii=False)}\n\n"
-                yield "data: [DONE]\n\n"
-
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+        return StreamingResponse(
+            event_stream(loop, request.model, user_message), media_type="text/event-stream"
+        )
     except HTTPException:
         raise
     except LLMError as exc:
