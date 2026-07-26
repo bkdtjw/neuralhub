@@ -52,10 +52,12 @@ services:
       - ./proxy-config.yaml:/app/proxy-config.yaml:ro
       # GeoIP database to avoid mihomo downloading it at startup
       - /etc/mihomo/geoip.metadb:/app/data/geoip.metadb:ro
-      # Claude Code CLI（订阅登录态）供 claude_code provider 子进程调用
+      # Claude Code CLI（订阅登录态）供 claude_code provider 子进程调用；
+      # app 进程跑在 appuser(1000)，home 用 appuser 可写目录，凭据目录经 ACL 授权挂到其下
       - /usr/bin/claude:/usr/bin/claude:ro
       - /usr/lib/node_modules/@anthropic-ai/claude-code:/usr/lib/node_modules/@anthropic-ai/claude-code:ro
-      - /root/.claude:/root/.claude
+      - ./data/claude_home:/claude-home
+      - /root/.claude:/claude-home/.claude
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/ready"]
       interval: 30s
@@ -99,10 +101,11 @@ services:
       - ./config.yaml:/app/config.yaml:ro
       - ./custom_nodes.yaml:/app/custom_nodes.yaml:ro
       - ./proxy-config.yaml:/app/proxy-config.yaml:ro
-      # Claude Code CLI（订阅登录态）供 claude_code provider 子进程调用
+      # Claude Code CLI（订阅登录态）供 claude_code provider 子进程调用；同 app 的 appuser 方案
       - /usr/bin/claude:/usr/bin/claude:ro
       - /usr/lib/node_modules/@anthropic-ai/claude-code:/usr/lib/node_modules/@anthropic-ai/claude-code:ro
-      - /root/.claude:/root/.claude
+      - ./data/claude_home:/claude-home
+      - /root/.claude:/claude-home/.claude
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
