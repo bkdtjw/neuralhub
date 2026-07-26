@@ -185,6 +185,62 @@ describe("sessionStore resync（F4：断线重连后非破坏性补偿）", () =
   });
 });
 
+describe("sessionStore deleteSession（UX批次3：乐观更新+失败恢复）", () => {
+  const makeSessions = (): Session[] => [
+    { ...session, id: "s1" },
+    { ...session, id: "s2" },
+    { ...session, id: "s3" },
+  ];
+
+  beforeEach(() => {
+    useSessionStore.setState({
+      sessions: makeSessions(),
+      currentSessionId: "s2",
+      messages: [{ id: "m1", role: "user", content: "hi", timestamp: "t0" }],
+      lastError: "",
+      status: "done",
+    });
+  });
+
+  it("成功：从列表移除并清理当前会话状态（messages/currentSessionId）", async () => {
+    const spy = vi.spyOn(api, "deleteSession").mockResolvedValue({ ok: true, message: "" });
+    await useSessionStore.getState().deleteSession("s2");
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1", "s3"]);
+    expect(useSessionStore.getState().currentSessionId).toBeNull();
+    expect(useSessionStore.getState().messages).toEqual([]);
+    expect(useSessionStore.getState().status).toBe("idle");
+    spy.mockRestore();
+  });
+
+  it("乐观移除：api 未结算前列表已不含被删条目", async () => {
+    let resolveApi: (value: { ok: boolean; message: string }) => void = () => undefined;
+    const spy = vi.spyOn(api, "deleteSession").mockReturnValue(new Promise((resolve) => { resolveApi = resolve; }));
+    const pending = useSessionStore.getState().deleteSession("s1");
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s2", "s3"]);
+    resolveApi({ ok: true, message: "" });
+    await pending;
+    spy.mockRestore();
+  });
+
+  it("失败：把快照插回原位置并 setLastError（删除失败，已恢复该会话）", async () => {
+    const spy = vi.spyOn(api, "deleteSession").mockRejectedValue(new Error("backend down"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await useSessionStore.getState().deleteSession("s2");
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1", "s2", "s3"]);
+    expect(useSessionStore.getState().lastError).toBe("删除失败，已恢复该会话");
+    spy.mockRestore();
+    err.mockRestore();
+  });
+
+  it("删除不存在的会话直接返回（不调 api、不动列表）", async () => {
+    const spy = vi.spyOn(api, "deleteSession").mockResolvedValue({ ok: true, message: "" });
+    await useSessionStore.getState().deleteSession("zzz");
+    expect(spy).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1", "s2", "s3"]);
+    spy.mockRestore();
+  });
+});
+
 describe("sessionStore connectionState（F4：连接状态指示）", () => {
   beforeEach(() => {
     useSessionStore.setState({ connectionState: "connected" });
