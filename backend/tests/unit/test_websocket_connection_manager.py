@@ -7,6 +7,7 @@ import pytest
 
 from backend.api.routes import websocket as websocket_route
 from backend.api.routes.websocket import ConnectionManager
+from backend.common.errors import AgentError
 
 
 class FakeWebSocket:
@@ -53,6 +54,27 @@ async def test_broadcast_reaches_all_session_connections(
         assert failed_task.cancelled()
     finally:
         failed_task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_broadcast_survives_cross_worker_publish_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 复盘 2026-07-13 生产事故：Redis 池耗尽时 publish 抛 MaxConnectionsError，
+    # 跨 worker 扇出失败只降级告警，本地已送达的流式帧与 WS 主链路不受连坐。
+    async def failing_publish(session_id: str, payload: dict[str, Any]) -> None:
+        raise AgentError("WS_PUBSUB_PUBLISH_ERROR", "Too many connections")
+
+    monkeypatch.setattr(websocket_route, "publish_session_message", failing_publish)
+    manager = ConnectionManager()
+    local = FakeWebSocket()
+    payload = {"type": "message", "content": "streamed"}
+
+    await manager.connect("session-1", local)  # type: ignore[arg-type]
+    await manager.broadcast("session-1", payload)  # 不应抛 WS_BROADCAST_ERROR
+
+    assert local.messages == [payload]
+    assert manager._connections["session-1"] == {local}  # noqa: SLF001
 
 
 @pytest.mark.asyncio

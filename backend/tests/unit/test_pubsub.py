@@ -5,10 +5,11 @@ import asyncio
 import pytest
 
 from backend.common.logging import get_worker_id
-from backend.core.pubsub import Subscriber, publish, ws_session_channel
+import backend.core.pubsub as pubsub_module
+from backend.core.pubsub import PubSubError, Subscriber, publish, ws_session_channel
 from backend.api.routes.websocket_pubsub import WebSocketEnvelope, forward_session_messages
 
-from .redis_test_support import use_fake_redis
+from .redis_test_support import FakeAsyncRedis, use_fake_redis
 
 
 class FakeWebSocket:
@@ -58,3 +59,32 @@ async def test_forward_session_messages_ignores_same_worker(monkeypatch: pytest.
     task.cancel()
     await task
     assert websocket.messages == [{"type": "message", "content": "remote"}]
+
+
+@pytest.mark.asyncio
+async def test_subscriber_uses_dedicated_pubsub_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 订阅连接长期占用，必须落在独立 pubsub 客户端上，不允许挤占命令池。
+    command_client = FakeAsyncRedis()
+    pubsub_client = FakeAsyncRedis()
+    monkeypatch.setattr(pubsub_module, "get_redis", lambda: command_client)
+    monkeypatch.setattr(pubsub_module, "get_redis_pubsub", lambda: pubsub_client)
+    subscriber = Subscriber(poll_timeout=0.05)
+    channel = ws_session_channel("session-3")
+    await subscriber.subscribe(channel)
+    assert channel in pubsub_client.subscribers
+    assert channel not in command_client.subscribers
+    await subscriber.unsubscribe()
+
+
+@pytest.mark.asyncio
+async def test_publish_raises_pubsub_error_when_pool_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 池耗尽（MaxConnectionsError 一类）在 publish 层的契约是抛 PubSubError，
+    # 降级（吞掉并告警）由 broadcast 负责，见 test_websocket_connection_manager。
+    fake = await use_fake_redis(monkeypatch)
+    fake.client.fail_operations.add("publish")
+    with pytest.raises(PubSubError, match="PUBSUB_PUBLISH_ERROR"):
+        await publish(ws_session_channel("session-4"), {"type": "message"})

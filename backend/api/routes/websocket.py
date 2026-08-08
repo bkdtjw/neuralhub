@@ -188,7 +188,14 @@ class ConnectionManager:
                         self._remove_subscriber_task(session_id, ws, None)
                     if not active:
                         self._connections.pop(session_id, None)
-            await publish_session_message(session_id, payload)
+            # 跨 worker 扇出是尽力而为：publish 失败（如 Redis 池耗尽）只大声告警，
+            # 本地已 send 的帧不受影响，也不炸上游 fire-and-forget 事件任务。
+            try:
+                await publish_session_message(session_id, payload)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ws_cross_worker_publish_degraded", session_id=session_id, error=str(exc)
+                )
         except Exception as exc:  # noqa: BLE001
             raise AgentError("WS_BROADCAST_ERROR", str(exc)) from exc
 

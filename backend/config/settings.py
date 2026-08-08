@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     api_port: int = 8000
     database_url: str = ""
     redis_url: str = ""
+    # 命令池上限：publish/普通命令共用，须留足余量应对重连风暴（生产实证 20 会被抽干）。
+    redis_max_connections: int = Field(default=100, ge=1)
+    # pubsub 订阅池上限：每条活跃 WS 会话的 Subscriber 长期独占一条连接，
+    # 须大于单 worker 峰值并发 WS 数，且与命令池隔离防止互相饿死。
+    redis_pubsub_max_connections: int = Field(default=500, ge=1)
     database_pool_size: int = 5
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
